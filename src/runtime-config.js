@@ -9,7 +9,9 @@ export function resolveBaseURL({ baseURL, production, env = process.env }) {
   const explicit = baseURL ?? env.BASE_URL;
   const domain = String(env.RAILWAY_PUBLIC_DOMAIN || '').trim();
   const value = String(explicit || (domain ? `https://${domain}` : production ? '' : 'http://localhost:3000')).trim();
-  if (!value) throw new Error('Set BASE_URL to your HTTPS public origin or configure a public domain so RAILWAY_PUBLIC_DOMAIN is available.');
+  // A service can start before its public domain is provisioned. An absent
+  // canonical origin must not stop health checks or same-origin browser use.
+  if (!value) return null;
   let parsed;
   try { parsed = new URL(value); } catch { throw new Error('BASE_URL must be a valid public origin, for example https://your-store.example.'); }
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
@@ -17,6 +19,18 @@ export function resolveBaseURL({ baseURL, production, env = process.env }) {
   }
   if (production && parsed.protocol !== 'https:') throw new Error('Production BASE_URL must use HTTPS.');
   return parsed.origin;
+}
+
+export function resolveRequestOrigin({ baseURL, host, production }) {
+  if (baseURL) return baseURL;
+  // Only the actual Host header participates in browser origin checks.
+  // Never promote a forwarded host or a first request into a canonical URL.
+  if (typeof host !== 'string' || !host || /[\s,@/\\?#]/.test(host)) return null;
+  try {
+    const parsed = new URL(`${production ? 'https' : 'http'}://${host}`);
+    if (!parsed.hostname || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
+    return parsed.origin;
+  } catch { return null; }
 }
 
 export function resolveEncryptionKey({ encryptionKey, dataDir, db, env = process.env }) {

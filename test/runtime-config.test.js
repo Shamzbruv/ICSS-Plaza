@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
-import { resolveBaseURL, resolveEncryptionKey } from '../src/runtime-config.js';
+import { resolveBaseURL, resolveRequestOrigin, resolveEncryptionKey } from '../src/runtime-config.js';
 import { encrypt } from '../src/model.js';
 
 function fixture(t) {
@@ -22,11 +22,11 @@ test('production derives an HTTPS origin from the provided public domain', () =>
   assert.equal(resolveBaseURL({production:false, env:{}}), 'http://localhost:3000');
 });
 
-test('production rejects insecure, malformed and missing origins without trusting request headers', () => {
+test('production rejects insecure or malformed configured origins and permits an unconfigured origin', () => {
   for (const baseURL of ['http://shop.example','https://','https://user:pass@shop.example','https://shop.example/path','https://shop.example/?x=1','https://shop.example/#x']) {
     assert.throws(() => resolveBaseURL({baseURL, production:true, env:{}}));
   }
-  assert.throws(() => resolveBaseURL({production:true, env:{}}), /Set BASE_URL/);
+  assert.equal(resolveBaseURL({production:true, env:{}}), null);
 });
 
 test('first startup generates a private key once and restart reuses it to decrypt credentials', t => {
@@ -59,9 +59,10 @@ test('existing encrypted records require the original key, including historical 
   assert.equal(f.db.prepare('SELECT data FROM orders').get().data,JSON.stringify({paymentConfig:encrypted}));
 });
 
-test('production entrypoint boots without the two optional variables and keeps secure cookies', async t => {
+for (const hasDomain of [true, false]) test(`production boots with no BASE_URL/key and ${hasDomain ? 'a provided domain' : 'no public domain at all'}`, async t => {
   const dataDir=mkdtempSync(join(tmpdir(),'plaza-production-'));
   const env={...process.env,NODE_ENV:'production',RAILWAY_PUBLIC_DOMAIN:'plaza-test.up.railway.app',DATA_DIR:dataDir,PORT:'0'};
+  if (!hasDomain) delete env.RAILWAY_PUBLIC_DOMAIN;
   delete env.BASE_URL; delete env.ENCRYPTION_KEY; delete env.OPERATOR_EMAIL; delete env.OPERATOR_PASSWORD;
   // Port zero is passed to createApp's real HTTP server so tests do not reserve a fixed port.
   const script="import {createApp} from './src/server.js'; const {server}=createApp(); server.listen(0,'127.0.0.1',()=>console.log('READY '+server.address().port));";
@@ -75,7 +76,18 @@ test('production entrypoint boots without the two optional variables and keeps s
   });
   const health=await fetch(`http://127.0.0.1:${port}/api/health`);
   assert.equal(health.status,200); assert.deepEqual(await health.json(),{ok:true});
-  const signup=await fetch(`http://127.0.0.1:${port}/api/signup`,{method:'POST',headers:{Origin:'https://plaza-test.up.railway.app','Content-Type':'application/json'},body:JSON.stringify({email:'smoke@example.com',password:'secure-smoke-password',name:'Smoke store',slug:'smoke-store',acceptTerms:true})});
+  const browserOrigin=hasDomain?'https://plaza-test.up.railway.app':`https://127.0.0.1:${port}`;
+  const landing=await fetch(`http://127.0.0.1:${port}/`);assert.equal(landing.status,200);
+  const signup=await fetch(`http://127.0.0.1:${port}/api/signup`,{method:'POST',headers:{Origin:browserOrigin,'Content-Type':'application/json'},body:JSON.stringify({email:'smoke@example.com',password:'secure-smoke-password',name:'Smoke store',slug:'smoke-store',acceptTerms:true})});
   assert.equal(signup.status,201);assert.match(signup.headers.get('set-cookie'),/; Secure/);
+  const hostile=await fetch(`http://127.0.0.1:${port}/api/login`,{method:'POST',headers:{Origin:'https://attacker.example','X-Forwarded-Host':'attacker.example','Content-Type':'application/json'},body:'{}'});assert.equal(hostile.status,403);
   assert.match(readFileSync(join(dataDir,'.encryption-key'),'utf8').trim(),/^[a-f0-9]{64}$/);
+});
+
+
+test('unconfigured browser origin is tied to Host and does not become a global origin', () => {
+  assert.equal(resolveRequestOrigin({baseURL:null,host:'plaza.example',production:true}),'https://plaza.example');
+  assert.equal(resolveRequestOrigin({baseURL:null,host:'second.example',production:true}),'https://second.example');
+  assert.equal(resolveRequestOrigin({baseURL:'https://configured.example',host:'attacker.example',production:true}),'https://configured.example');
+  for(const host of ['',null,'a.example,b.example','user@a.example','a.example/path','a.example?x=1','a.example#x','a.example\\x','a.example b']) assert.equal(resolveRequestOrigin({baseURL:null,host,production:true}),null);
 });

@@ -34,3 +34,11 @@ test('gateway configuration rejects executable URLs and unsupported providers',(
  assert.throws(()=>validateGateway('fygaro',{buttonURL:'https://evil.example/checkout',keyId:'k',secret:'s'}));assert.throws(()=>validateGateway('custom',{paymentURL:'javascript:alert(1)',label:'x'}));assert.throws(()=>validateGateway('nonexistent',{}));assert.throws(()=>validateGateway('bank',{}));
  assert.equal(validateGateway('bank',{instructions:'Contact the seller to transfer.'}).instructions,'Contact the seller to transfer.');
 });
+
+
+test('missing canonical origin blocks automated payments before calling any provider; manual payments still work', async () => {
+  const fetcher=async()=>{throw Error('Must not call a provider without a canonical origin');};
+  for(const gateway of ['paypal','wipay','fygaro']) await assert.rejects(()=>initiate({...order,gateway},credentials,null,fetcher), /configured HTTPS public origin/);
+  const manual=await initiate({...order,gateway:'bank'},{instructions:'Use your order reference.'},null,fetcher);
+  assert.equal(manual.manual,true);assert.equal(manual.instructions,'Use your order reference.');assert.equal(manual.url,null);
+});

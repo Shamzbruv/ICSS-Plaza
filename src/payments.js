@@ -47,6 +47,7 @@ async function paypalToken(c, fetcher) {
  if (!result.access_token) fail('PayPal access failed.',502); return {base,token:result.access_token};
 }
 export async function initiate(order,c,baseURL,fetcher=fetch) {
+ if (gateways.find(g=>g.id===order.gateway)?.mode==='automated' && !baseURL) fail('Online payment checkout needs a configured HTTPS public origin.',503);
  const callback=`${baseURL}/api/payments/${order.tenant_id}/${order.gateway}/return?order=${order.id}`;
  if (order.gateway==='fygaro') { const u=new URL(c.buttonURL); u.searchParams.set('jwt',fygaroJWT(order,c)); return {url:u.toString()}; }
  if (order.gateway==='paypal') {

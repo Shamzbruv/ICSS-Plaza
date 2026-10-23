@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { id, hash, fail, text, integer, passwordHash, passwordMatches, encrypt, decrypt, defaults, settings, product, totals } from './model.js';
 import { gateways, validateGateway, initiate, capturePayPal, verifyFygaro, wiHash, same } from './payments.js';
-import { resolveBaseURL, resolveEncryptionKey } from './runtime-config.js';
+import { resolveBaseURL, resolveRequestOrigin, resolveEncryptionKey } from './runtime-config.js';
 const here=dirname(fileURLToPath(import.meta.url));
 const email=x=>{x=text(x,200,3).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))fail('Enter a valid email address.');return x;};
 export function createApp(options={}) {
@@ -63,13 +63,13 @@ export function createApp(options={}) {
  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'");
  if(production)res.setHeader('Strict-Transport-Security','max-age=31536000');
  try {
- const u=new URL(req.url,baseURL),path=u.pathname,method=req.method;
+ const u=new URL(req.url,baseURL || 'http://localhost'),path=u.pathname,method=req.method;
  const token=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('plaza_session='))?.slice(14);
  const s=token?one('SELECT s.*,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?',hash(token),Date.now()):null;
  if(s){req.user={id:s.user_id,email:s.email};req.csrf=s.csrf;}
  const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path);
  if(!['GET','HEAD'].includes(method)){
- if(!webhook){if(req.headers.origin!==new URL(baseURL).origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
+ if(!webhook){const origin=resolveRequestOrigin({baseURL,host:req.headers.host,production});if(!origin||req.headers.origin!==origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
  req.body=await body(req);
  }
  const b=req.body||{};
@@ -102,6 +102,7 @@ export function createApp(options={}) {
  const gateway=text(b.gateway,40,1);if(!activeGateways(t).some(g=>g.provider===gateway))fail('Choose an available payment method.');
  const config=getConfig(t.id,gateway).value;
  const g=gateways.find(g=>g.id===gateway);if(g.mode==='automated'&&config.environment!=='live')fail('This payment method is in sandbox mode. Ask the seller to activate live credentials.',409);
+ if(g.mode==='automated'&&!baseURL)fail('Online payment checkout is not ready. Contact the seller to activate their public store URL.',503);
  const oid=id(),short=id().slice(0,14);
  const order=tx(()=>{
  if(!Array.isArray(b.lines)||!b.lines.length||b.lines.length>100)fail('Your cart must contain 1–100 items.');
@@ -141,7 +142,7 @@ export function createApp(options={}) {
  const row=one('SELECT * FROM orders WHERE id=? AND tenant_id=?',u.searchParams.get('order')||'',tid);if(!row)fail('Order not found.',404);const o=readOrder(row);if(o.gateway!==provider)fail('Gateway mismatch.');const c=decrypt(o.paymentConfig,key);
  if(provider==='paypal'&&!o.paid)paid(o.id,'paypal:'+await capturePayPal(o,c,u.searchParams.get('token'),options.fetcher));
  if(provider==='wipay'&&!o.paid){const tr=u.searchParams.get('transaction_id')||'';if(u.searchParams.get('status')!=='success'||u.searchParams.get('order_id')!==o.short_id||!tr||tr!==o.provider_id||u.searchParams.get('currency')!==o.currency||!same(wiHash(tr,o.total,c.secret),u.searchParams.get('hash')))fail('Payment is awaiting verification.',409);paid(o.id,'wipay:'+tr);}
- return redirect(res,baseURL+'/s/'+o.slug+'?payment=returned');
+ return redirect(res,(baseURL||'')+'/s/'+o.slug+'?payment=returned');
  }
  fail('Unknown payment action.',404);
  }
