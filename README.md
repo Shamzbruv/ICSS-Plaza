@@ -111,11 +111,9 @@ A single persistent volume stores the SQLite database, uploaded media, audit rec
 
 `npm test` covers tenant isolation, CSRF, draft/public access, checkout totals and idempotency, inventory reservations/cancellation, order access tokens, media ownership/type validation, encrypted/redacted credentials, authenticated Fygaro hooks, trial expiry/operator controls, mocked PayPal/WiPay behaviour, and frontend route/template rendering. These are automated integration and template tests. **No real-browser layout QA or live gateway transaction was performed in this environment.**
 
-## Template provenance
+## Platform design
 
-The requested source was inspected at [`Shamzbruv/Foryou-Skin-Bar`](https://github.com/Shamzbruv/Foryou-Skin-Bar), commit `74291a0cf860fafbff3a65ddffd9153d0322ab97`.
-
-Its cream/gold palette, editorial hero, product cards, cart and editable-content patterns informed the tenant storefront. The original single-merchant backend was rebuilt around tenant ownership instead of copying its global merchant settings. No client account, customer record, existing gateway destination, tracking ID, logo or private key was copied into ICSS Plaza. See `docs/payment-sources.md` for provider references.
+ICSS Plaza provides editable storefronts with custom branding, product cards, a shopping cart and tenant-specific content. Each store has its own settings, products and payment configuration. See `docs/payment-sources.md` for payment-provider references.
 
 ## Ownership
 
