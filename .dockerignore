@@ -3,5 +3,6 @@
 .env.*
 !.env.example
 data
+.encryption-key*
 node_modules
 *.sqlite*

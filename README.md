@@ -27,11 +27,11 @@ Requires **Node.js 24** (built-in `node:sqlite`). No third-party runtime depende
 
 ```sh
 cp .env.example .env
-# Edit .env and generate ENCRYPTION_KEY using the command shown there.
+# Edit .env as needed. If ENCRYPTION_KEY is blank, a private key is generated in DATA_DIR.
 node --env-file=.env src/server.js
 ```
 
-Open `http://localhost:3000`. The marketing page and `/demo` work without an operator account. Configure the encryption key before enabling a payment method, including manual methods.
+Open `http://localhost:3000`. The marketing page and `/demo` work without an operator account. An explicit ENCRYPTION_KEY remains supported. If it is absent, the server creates DATA_DIR/.encryption-key with owner-only permissions and reuses it on restart. Include this private file with protected database backups; it is never served publicly or committed.
 
 ```sh
 npm run check
@@ -85,13 +85,13 @@ This is prepared for Railway using `Dockerfile` and `railway.json`; it has **not
 2. Connect that repository to a new Railway service. Railway builds the Dockerfile.
 3. Attach a persistent volume at `/data`. Set `DATA_DIR=/data`.
 4. Use **one replica**. SQLite is a durable single-service database here. Do not horizontally scale this build or place its database on an ephemeral filesystem. A managed Postgres migration is needed for multi-instance scaling.
-5. Set `NODE_ENV=production`, `BASE_URL=https://YOUR-RAILWAY-OR-CUSTOM-DOMAIN`, and a durable `ENCRYPTION_KEY` (64 hex characters). Generate the key locally; never commit it. Back it up separately: losing it makes stored gateway credentials unreadable.
+5. Set `NODE_ENV=production`. The server uses `BASE_URL` when provided, otherwise it derives its HTTPS origin from Railway’s `RAILWAY_PUBLIC_DOMAIN`. A public domain must exist. An optional `ENCRYPTION_KEY` must be 64 hexadecimal characters. If absent on a fresh database, the server securely generates `DATA_DIR/.encryption-key` and reuses it. Keep `/data` on the persistent volume and protect the key file in backups. An invalid explicit URL/key still stops startup with a specific error; the application never replaces a missing key when encrypted records already exist.
 6. Set `OPERATOR_EMAIL` and a strong `OPERATOR_PASSWORD` before first boot. The operator is bootstrapped only if that email does not already exist. After creation, remove `OPERATOR_PASSWORD` from the deployment environment; keep `OPERATOR_EMAIL` as the operator identity. Change passwords using the account flow or an identity-verified recovery process.
 7. Set `TRUST_PROXY=1` only when the service is behind Railway’s trusted proxy. Keep direct origin access restricted; the rate limiter uses the trusted proxy’s client-address header.
 8. Railway’s `/api/health` check verifies database responsiveness. Confirm deployment health, production cookie flags and the configured public origin.
 9. Arrange the merchant rental and provider onboarding, then activate the tenant in `/operator`. New trials do not automatically become paid subscriptions.
 
-A single persistent volume stores the SQLite database, uploaded media and audit records. Use SQLite’s backup API or a consistent volume snapshot, not a blind live copy of only the main WAL database file. Schedule off-service encrypted backups and test restore. Do not commit production data or credentials.
+A single persistent volume stores the SQLite database, uploaded media, audit records and automatically generated encryption key. Without this volume, container replacement loses both the database and its generated key. If an existing deployment used an explicit ENCRYPTION_KEY, retain that original value: removing or changing it can make existing records unreadable. See [Railway’s provided variables](https://docs.railway.com/variables/reference) for RAILWAY_PUBLIC_DOMAIN. Use SQLite’s backup API or a consistent volume snapshot, not a blind live copy of only the main WAL database file. Schedule off-service encrypted backups and test restore. Do not commit production data or credentials.
 
 ## Business operation and limits
 

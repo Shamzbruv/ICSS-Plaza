@@ -6,9 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { id, hash, fail, text, integer, passwordHash, passwordMatches, encrypt, decrypt, defaults, settings, product, totals } from './model.js';
 import { gateways, validateGateway, initiate, capturePayPal, verifyFygaro, wiHash, same } from './payments.js';
+import { resolveBaseURL, resolveEncryptionKey } from './runtime-config.js';
 const here=dirname(fileURLToPath(import.meta.url));
 const email=x=>{x=text(x,200,3).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))fail('Enter a valid email address.');return x;};
 export function createApp(options={}) {
+ const production=options.production ?? process.env.NODE_ENV==='production';
+ const baseURL=resolveBaseURL({baseURL:options.baseURL,production});
  const dataDir=resolve(options.dataDir || process.env.DATA_DIR || './data'); mkdirSync(dataDir,{recursive:true});
  const db=new DatabaseSync(resolve(dataDir,'plaza.sqlite')); db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
  db.exec(`CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,password TEXT NOT NULL,created INTEGER NOT NULL);
@@ -24,10 +27,9 @@ export function createApp(options={}) {
  CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,tenant_id TEXT,actor TEXT NOT NULL,action TEXT NOT NULL,created INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL REFERENCES tenants(id),kind TEXT NOT NULL,note TEXT NOT NULL,created INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS resets(token TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires INTEGER NOT NULL);`);
- const key=options.encryptionKey || process.env.ENCRYPTION_KEY;
- const baseURL=(options.baseURL || process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/,'');
- const production=options.production ?? process.env.NODE_ENV==='production';
- if (production && (!baseURL.startsWith('https://') || !/^[a-f0-9]{64}$/i.test(key||''))) throw new Error('Production requires HTTPS BASE_URL and a 64-character hexadecimal ENCRYPTION_KEY.');
+ let key;
+ try { key=resolveEncryptionKey({encryptionKey:options.encryptionKey,dataDir,db}); }
+ catch(error) { db.close(); throw error; }
  const operatorEmail=(options.operatorEmail || process.env.OPERATOR_EMAIL || '').toLowerCase();
  const opPassword=options.operatorPassword || process.env.OPERATOR_PASSWORD;
  if(operatorEmail && opPassword && !db.prepare('SELECT id FROM users WHERE email=?').get(operatorEmail)) db.prepare('INSERT INTO users VALUES(?,?,?,?)').run(id(),email(operatorEmail),passwordHash(opPassword),Date.now());
