@@ -89,3 +89,11 @@ test('trial expiry and operator suspension close public checkout, only operator 
 test('static pages serve security headers and sensitive source files are inaccessible',async()=>{
  const r=await fetch(base+'/');assert.equal(r.status,200);assert.match(r.headers.get('content-security-policy'),/frame-ancestors 'none'/);assert.equal((await req('/src/server.js')).status,404);assert.equal((await req('/data/plaza.sqlite')).status,404);
 });
+test('brand metadata, manifest icons and shared artwork are served with browser-compatible types',async()=>{
+ const html=await (await fetch(base+'/')).text();assert.match(html,/http:\/\/localhost:3000\/assets\/brand\/social-preview.png/);assert.ok(!html.includes('__PLAZA_ORIGIN__'));
+ for(const route of ['/','/login','/demo']){const page=await(await fetch(base+route)).text();assert.match(page,/href="\/favicon.svg"/);assert.match(page,/href="\/site.webmanifest"/);}
+ const manifestResponse=await fetch(base+'/site.webmanifest');assert.match(manifestResponse.headers.get('content-type'),/application\/manifest\+json/);const manifest=await manifestResponse.json();assert.equal(manifest.short_name,'ICSS Plaza');
+ for(const icon of [...manifest.icons,{src:'/assets/brand/apple-touch-icon.png',sizes:'180x180'},{src:'/assets/brand/social-preview.png',sizes:'1200x630'}]){const r=await fetch(base+icon.src);assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'image/png');const data=Buffer.from(await r.arrayBuffer());assert.equal(data.subarray(1,4).toString(),'PNG');assert.equal(data.readUInt32BE(16)+'x'+data.readUInt32BE(20),icon.sizes);}
+ const icon=await fetch(base+'/favicon.ico');assert.equal(icon.headers.get('content-type'),'image/x-icon');const bytes=Buffer.from(await icon.arrayBuffer());assert.equal(bytes.readUInt16LE(2),1);assert.equal(bytes.readUInt16LE(4),3);
+ const head=await fetch(base+'/assets/brand/logo-horizontal.png',{method:'HEAD'});assert.equal(head.status,200);assert.equal(head.headers.get('content-type'),'image/png');assert.equal((await head.arrayBuffer()).byteLength,0);
+});

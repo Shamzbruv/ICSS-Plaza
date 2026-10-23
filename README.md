@@ -120,3 +120,7 @@ Its cream/gold palette, editorial hero, product cards, cart and editable-content
 ## Ownership
 
 Prepared for iCreate Solutions & Services. No open-source licence is granted by this repository. All rights reserved unless the owner specifies otherwise.
+
+## Brand assets
+
+The ICSS Plaza logo family, favicon, app icons, social graphics and interface illustrations are in `public/assets/brand/`. See [the brand guide](docs/BRAND.md) for the asset inventory, usage and export instructions.
