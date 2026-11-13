@@ -13,7 +13,7 @@ const transitions = {
   resolved: ['reviewing','closed'], closed: ['reviewing']
 };
 
-export function createVendorTrust({db,key,limit,email,requireOperator,requireUser,audit}) {
+export function createVendorTrust({db,key,limit,email,requireOperator,requireUser,audit,notify,operatorEmail}) {
   const {one,all,run,tx} = db;
   const secret = value => encrypt(value,key);
   const unseal = value => decrypt(value,key);
@@ -91,6 +91,8 @@ export function createVendorTrust({db,key,limit,email,requireOperator,requireUse
       for(const e of evidence) await run('INSERT INTO vendor_report_evidence VALUES(?,?,?,?,?,?)',id(),rid,secret(e.name),e.mime,secret(e.bytes),now);
       await addEvent(rid,'customer','platform','received','We received your report. Keep your reference and access key to check for updates.');
       await audit(t.id,'customer','vendor-report.received.'+rid);
+      await notify('case_customer',rid,contact,{reference:rid,status:'received'});
+      await notify('case_operator',rid,operatorEmail,{reference:rid,priority});
     },activeLock(t.id));
     return {id:rid,accessKey,status:'received'};
   }
@@ -111,6 +113,7 @@ export function createVendorTrust({db,key,limit,email,requireOperator,requireUse
       await run('UPDATE vendor_reports SET status=?,outcome=?,closed=?,updated=?,version=version+1 WHERE id=?',
         review?'reviewing':latest.status,review?null:latest.outcome,review?null:latest.closed,now,latest.id);
       await audit(latest.tenant_id,who,'vendor-report.'+(appeal?'appeal.':'reply.')+latest.id);
+      await notify('case_operator',latest.id+'/'+(latest.version+1),operatorEmail,{reference:latest.id,priority:latest.priority});
     },activeLock(report.tenant_id));
     return caseView(await getCase(report.id),who);
   }
@@ -150,6 +153,9 @@ export function createVendorTrust({db,key,limit,email,requireOperator,requireUse
       await run('UPDATE vendor_reports SET status=?,priority=?,outcome=?,vendor_visible=?,legal_hold=?,updated=?,closed=?,version=version+1 WHERE id=?',
         status,priority,terminal(status)?b.outcome||current.outcome:null,current.vendor_visible||vendorMessage?1:0,hold,now,terminal(status)?current.closed||now:null,current.id);
       await audit(current.tenant_id,req.user.id,'vendor-report.'+status+'.'+current.id);
+      const event=current.id+'/'+(current.version+1);
+      if(customerMessage||status!==current.status)await notify('case_customer',event,unseal(current.payload).email,{reference:current.id,status});
+      if(vendorMessage){const owner=await one('SELECT u.email FROM users u JOIN tenants t ON t.owner=u.id WHERE t.id=?',current.tenant_id);await notify('case_vendor',event,owner?.email,{reference:current.id});}
     },activeLock(report.tenant_id));
     return caseView(await getCase(report.id),'operator');
   }

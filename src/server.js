@@ -2,6 +2,7 @@ import http from 'node:http';
 import { createPostgresPool, openPostgres, openSqlite, revenueSQL } from './database.js';
 import { assertPostgresCutover, postgresKey } from './postgres-cutover.js';
 import { createVendorTrust } from './vendor-trust.js';
+import { createMailer } from './mailer.js';
 import { policyVersion } from '../public/trust-data.js';
 import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
@@ -34,6 +35,9 @@ export async function createApp(options={}) {
    await run('INSERT INTO users VALUES(?,?,?,?) ON CONFLICT(email) DO NOTHING',id(),email(operatorEmail),passwordHash(opPassword),Date.now());
   }
  }catch(error){await database.close();throw error;}
+ const mailer=createMailer({db:database,key,origin:baseURL,env:options.mailEnv,fetcher:options.mailFetcher});
+ const notify=mailer.enqueue;
+ const orderMail=(o,t)=>({id:o.id,slug:o.slug||t.slug,reference:o.short_id,store:o.seller?.name||t.settings.name,amount:new Intl.NumberFormat('en-JM',{style:'currency',currency:o.currency}).format(o.total/100)});
  const audit=async (tenant,actor,action)=>(await run('INSERT INTO audit VALUES(?,?,?,?,?)',id(),tenant,actor,action,Date.now()));
  function available(t){return t && (t.status==='active' || (t.status==='trial' && t.trial_end>Date.now()));}
  const unpack=t=>t?{...t,settings:JSON.parse(t.settings)}:null;
@@ -48,13 +52,14 @@ export async function createApp(options={}) {
  async function getConfig(tid,provider){const row=(await one('SELECT * FROM gateways WHERE tenant_id=? AND provider=?',tid,provider));if(!row)fail('Payment method is unavailable.');return {...row,value:decrypt(row.config,key)};}
  const readOrder=row=>row?{...JSON.parse(row.data),id:row.id,tenant_id:row.tenant_id,short_id:row.short_id,state:row.state,paid:!!row.paid,created:row.created,transaction_id:row.transaction_id}:null;
  async function orderAccess(oid,token){const row=(await one('SELECT * FROM orders WHERE id=?',oid));if(!row||!token||!same(row.token_hash,hash(token)))fail('Order not found.',404);return readOrder(row);}
- async function paid(tid,oid,transaction){return tx(async ()=>{const o=(await one('SELECT * FROM orders WHERE id=?',oid));if(!o)fail('Order not found.',404);if(o.paid)return;if(o.state==='cancelled')fail('Order cancelled: payment needs operator review.',409);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=?',transaction,oid);await audit(o.tenant_id,'gateway','payment.verified');},'tenant:'+tid);}
+ async function paid(tid,oid,transaction){return tx(async ()=>{const o=(await one('SELECT * FROM orders WHERE id=?',oid));if(!o)fail('Order not found.',404);if(o.paid)return;if(o.state==='cancelled')fail('Order cancelled: payment needs operator review.',409);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=?',transaction,oid);await audit(o.tenant_id,'gateway','payment.verified');const order=readOrder(o),tenant=await getTenantId(tid);await notify('payment',oid,order.customer.email,orderMail(order,tenant),{replyTo:order.seller?.email||tenant.settings.contactEmail});},'tenant:'+tid);}
  async function release(o){const data=JSON.parse(o.data);for(const l of data.lines){const p=(await one('SELECT * FROM products WHERE id=? AND tenant_id=?',l.productId,o.tenant_id));if(!p)continue;const d=JSON.parse(p.data);if(l.variantId){const v=d.variants.find(x=>x.id===l.variantId);if(v)v.stock+=l.quantity;}else d.stock+=l.quantity;await run('UPDATE products SET data=? WHERE id=?',JSON.stringify(d),p.id);}}
  const paymentLocks=new Set();
  const rate=new Map();function limit(req,bucket,max){const ip=process.env.TRUST_PROXY==='1'?String(req.headers['x-forwarded-for']||req.socket.remoteAddress).split(',')[0]:req.socket.remoteAddress;const k=bucket+':'+ip;const now=Date.now();let r=rate.get(k);if(!r||r.until<now)r={count:0,until:now+900000};if(++r.count>max)fail('Too many requests. Try again in 15 minutes.',429);rate.set(k,r);}
- const trust=createVendorTrust({db:database,key,limit,email,requireOperator,requireUser,audit});
+ const trust=createVendorTrust({db:database,key,limit,email,requireOperator,requireUser,audit,notify,operatorEmail});
  let lastPurge=0;
- const timer=setInterval(async ()=>{for(const [k,v]of rate)if(v.until<Date.now())rate.delete(k);try{await run('DELETE FROM sessions WHERE expires<?',Date.now());await run('DELETE FROM resets WHERE expires<?',Date.now());if(Date.now()-lastPurge>=86400000){await trust.purge();lastPurge=Date.now();}}catch(error){console.error('Scheduled cleanup failed:',error.code||error.name);}},60000);timer.unref();
+ const timer=setInterval(async ()=>{for(const [k,v]of rate)if(v.until<Date.now())rate.delete(k);try{await run('DELETE FROM sessions WHERE expires<?',Date.now());await run('DELETE FROM resets WHERE expires<?',Date.now());if(Date.now()-lastPurge>=86400000){await trust.purge();await mailer.purge();lastPurge=Date.now();}}catch(error){console.error('Scheduled cleanup failed:',error.code||error.name);}},60000);timer.unref();
+ const mailTimer=setInterval(()=>void mailer.drain().catch(error=>console.error('Email queue failed:',error.code||error.name)),4000);mailTimer.unref();
  function respond(res,data,status=200){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));}
  function redirect(res,url){res.writeHead(303,{Location:url,'Cache-Control':'no-store'});res.end();}
  async function session(req,res,user){const token=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');await run('INSERT INTO sessions VALUES(?,?,?,?)',hash(token),user.id,csrf,Date.now()+7*86400000);res.setHeader('Set-Cookie',`plaza_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${production?'; Secure':''}`);req.user=user;req.csrf=csrf;}
@@ -69,12 +74,16 @@ export async function createApp(options={}) {
  const token=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('plaza_session='))?.slice(14);
  const s=token?(await one('SELECT s.*,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?',hash(token),Date.now())):null;
  if(s){req.user={id:s.user_id,email:s.email};req.csrf=s.csrf;}
- const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path);
+ const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path)||path==='/api/webhooks/resend';
  if(!['GET','HEAD'].includes(method)){
  if(!webhook){const origin=resolveRequestOrigin({baseURL,host:req.headers.host,production});if(!origin||req.headers.origin!==origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
  req.body=await body(req);
  }
  const b=req.body||{};
+ if(path==='/api/webhooks/resend'&&method==='POST'){await mailer.receive(req.raw,req.headers,b);return respond(res,{received:true});}
+ const mailReply=path.match(/^\/api\/operator\/mail\/([a-f0-9-]{36})\/reply$/i);
+ if(mailReply&&method==='POST'){requireOperator(req);limit(req,'mail-reply',30);const message=text(b.message,5000,10);const requestId=text(b.requestId,32,32);if(!/^[a-f0-9]{32}$/.test(requestId))fail('Invalid request reference.');await mailer.replyToInbound(mailReply[1],message,requestId);return respond(res,{queued:true},202);}
+ if(path==='/api/operator/mail'&&method==='GET'){requireOperator(req);return respond(res,{...(await mailer.stats()),messages:await mailer.inbox()});}
  if(/^\/api\/(reports|vendor\/reports|operator\/reports)(?:\/|$)/.test(path))return await trust.handle({req,res,u,path,method,b,respond});
  if(path==='/api/health')return respond(res,{ok:!!(await one('SELECT 1 AS ok'))});
  if(path==='/api/catalog'&&method==='GET')return respond(res,{gateways,operator:'iCreate Solutions & Services',trialDays:14});
@@ -83,15 +92,15 @@ export async function createApp(options={}) {
  limit(req,'signup',10);const em=email(b.email),pw=passwordHash(b.password),slug=text(b.slug,48,3).toLowerCase();if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||['admin','demo','api','www','plaza','support'].includes(slug))fail('Choose a store address using letters, numbers and hyphens.');
  if(operatorEmail&&em===operatorEmail)fail('This email is reserved. Contact Plaza support.',409);
  if(b.acceptTerms!==true)fail('Accept the platform terms and independent vendor agreement to continue.');
- const uid=id(),tid=id();(await tx(async ()=>{if((await one('SELECT id FROM users WHERE email=?',em)))fail('This email is already registered. Sign in instead.',409);if((await one('SELECT id FROM tenants WHERE slug=?',slug)))fail('That store address is taken.',409);await run('INSERT INTO users VALUES(?,?,?,?)',uid,em,pw,Date.now());(await run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)',tid,slug,uid,'trial',Date.now()+14*86400000,JSON.stringify({...defaults(),name:text(b.name,180,1),contactEmail:em}),Date.now()));}));
+ const uid=id(),tid=id(),storeName=text(b.name,180,1);(await tx(async ()=>{if((await one('SELECT id FROM users WHERE email=?',em)))fail('This email is already registered. Sign in instead.',409);if((await one('SELECT id FROM tenants WHERE slug=?',slug)))fail('That store address is taken.',409);await run('INSERT INTO users VALUES(?,?,?,?)',uid,em,pw,Date.now());(await run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)',tid,slug,uid,'trial',Date.now()+14*86400000,JSON.stringify({...defaults(),name:storeName,contactEmail:em}),Date.now()));await notify('welcome',uid,em,{store:storeName});},'signup'));
  (await session(req,res,{id:uid,email:em}));await audit(tid,uid,'signup.vendor-agreement.'+policyVersion);return respond(res,{ok:true},201);
  }
  if(path==='/api/login'&&method==='POST'){
  limit(req,'login',30);const em=email(b.email),pw=text(b.password,128,1);const user=(await one('SELECT * FROM users WHERE email=?',em));if(!passwordMatches(pw,user?.password||'0000000000000000:'+ '0'.repeat(128)))fail('Email or password is incorrect.',401);await session(req,res,user);return respond(res,{ok:true});
  }
  if(path==='/api/logout'&&method==='POST'){if(token)(await run('DELETE FROM sessions WHERE token=?',hash(token)));res.setHeader('Set-Cookie','plaza_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');return respond(res,{ok:true});}
- if(path==='/api/password'&&method==='POST'){requireUser(req);const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwordMatches(text(b.currentPassword,128,1),user.password))fail('Current password is incorrect.',403);await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),user.id);(await run('DELETE FROM sessions WHERE user_id=?',user.id));await session(req,res,user);return respond(res,{ok:true});}
- if(path==='/api/reset'&&method==='POST'){limit(req,'reset',20);const resetHash=hash(text(b.token,100,1));await tx(async ()=>{const r=await one('SELECT * FROM resets WHERE token=? AND expires>?',resetHash,Date.now());if(!r)fail('Reset token is invalid or expired.');await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),r.user_id);(await run('DELETE FROM sessions WHERE user_id=?',r.user_id));await run('DELETE FROM resets WHERE user_id=?',r.user_id);},'password-reset');return respond(res,{ok:true});}
+ if(path==='/api/password'&&method==='POST'){requireUser(req);const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwordMatches(text(b.currentPassword,128,1),user.password))fail('Current password is incorrect.',403);await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),user.id);(await run('DELETE FROM sessions WHERE user_id=?',user.id));await session(req,res,user);await notify('password_changed',hash(req.csrf),user.email);return respond(res,{ok:true});}
+ if(path==='/api/reset'&&method==='POST'){limit(req,'reset',20);const resetHash=hash(text(b.token,100,1));await tx(async ()=>{const r=await one('SELECT * FROM resets WHERE token=? AND expires>?',resetHash,Date.now());if(!r)fail('Reset token is invalid or expired.');await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),r.user_id);(await run('DELETE FROM sessions WHERE user_id=?',r.user_id));await run('DELETE FROM resets WHERE user_id=?',r.user_id);const user=await one('SELECT email FROM users WHERE id=?',r.user_id);await notify('password_changed',resetHash,user?.email);},'password-reset');return respond(res,{ok:true});}
  let m;
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)$/))&&method==='GET'){
  const t=(await getTenant(m[1]));if(!available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);return respond(res,{id:t.id,slug:t.slug,settings:t.settings,checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
@@ -122,7 +131,10 @@ export async function createApp(options={}) {
  }
  const total=totals(lines,t.settings,delivery);const data={...total,currency:t.settings.currency,slug:t.slug,gateway,customer:contact,delivery,lines,provider_id:'',payment:null,paymentConfig:encrypt(config,key),termsAcceptedAt:Date.now(),seller:{name:t.settings.name,email:t.settings.contactEmail,phone:t.settings.phone,address:t.settings.address},policySnapshot:{terms:t.settings.terms,shipping:t.settings.shipping,returns:t.settings.returns,privacy:t.settings.privacy,platformVersion:policyVersion}};
  (await run('INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?,?)',oid,short,t.id,hash(orderToken),idem,fingerprint,JSON.stringify(data),'new',0,null,Date.now()));
- return {order:readOrder(await one('SELECT * FROM orders WHERE id=?',oid)),config};
+ const order=readOrder(await one('SELECT * FROM orders WHERE id=?',oid));const mail=orderMail(order,t);
+ await notify('order_buyer',oid,contact.email,{...mail,token:orderToken},{replyTo:t.settings.contactEmail});
+ const seller=await one('SELECT email FROM users WHERE id=?',t.owner);await notify('order_vendor',oid,seller?.email,mail);
+ return {order,config};
  }, 'tenant:'+initial.id);
  const {order,config}=result,oid=order.id;
  if(result.existing){delete order.paymentConfig;return respond(res,{order,token:orderToken});}
@@ -138,6 +150,7 @@ export async function createApp(options={}) {
  paymentLocks.add(o.id);
  try{const config=decrypt(o.paymentConfig,key);o.payment=await initiate(o,config,baseURL,options.fetcher);o.provider_id=o.payment.providerId||'';await run('UPDATE orders SET data=? WHERE id=?',JSON.stringify(o),o.id);const safe={...o};delete safe.paymentConfig;return respond(res,{order:safe});}finally{paymentLocks.delete(o.id);}
  }
+ if((m=path.match(/^\/api\/orders\/([a-f0-9]+)\/lookup$/))&&method==='POST'){limit(req,'order-lookup',60);const o=await orderAccess(m[1],b.token);delete o.paymentConfig;return respond(res,{order:o});}
  if((m=path.match(/^\/api\/orders\/([a-f0-9]+)$/))&&method==='GET'){const o=(await orderAccess(m[1],u.searchParams.get('token')));delete o.paymentConfig;return respond(res,{order:o});}
  if((m=path.match(/^\/api\/payments\/([a-f0-9]+)\/(fygaro|paypal|wipay)\/(hook|return)$/))){
  const [,tid,provider,kind]=m;
@@ -185,7 +198,7 @@ export async function createApp(options={}) {
  const config=validateGateway(g.id,b,old?decrypt(old.config,key):{});if(!g.currencies.includes(t.settings.currency))fail('This provider does not support the store currency.');
  (await run('INSERT INTO gateways VALUES(?,?,?,?) ON CONFLICT(tenant_id,provider) DO UPDATE SET enabled=excluded.enabled,config=excluded.config',t.id,g.id,1,encrypt(config,key)));await audit(t.id,req.user.id,'gateway.configured.'+g.id);return {payload:{ok:true}};
  }
- if(action==='requests'&&method==='POST'){if(!['cancellation','deletion','billing','support'].includes(b.kind))fail('Invalid request.');await run('INSERT INTO requests VALUES(?,?,?,?,?)',id(),t.id,b.kind,text(b.note||'',3000),Date.now());if(b.kind==='cancellation'){await run('UPDATE tenants SET status=? WHERE id=?','cancelled',t.id);(await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify({...t.settings,published:false}),t.id));}await audit(t.id,req.user.id,'request.'+b.kind);return {payload:{ok:true}};}
+ if(action==='requests'&&method==='POST'){if(!['cancellation','deletion','billing','support'].includes(b.kind))fail('Invalid request.');const requestId=id();await run('INSERT INTO requests VALUES(?,?,?,?,?)',requestId,t.id,b.kind,text(b.note||'',3000),Date.now());if(b.kind==='cancellation'){await run('UPDATE tenants SET status=? WHERE id=?','cancelled',t.id);(await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify({...t.settings,published:false}),t.id));}await audit(t.id,req.user.id,'request.'+b.kind);const mail={store:t.settings.name,type:b.kind};await notify('service_request',requestId,req.user.email,mail);await notify('service_operator',requestId,operatorEmail,mail);return {payload:{ok:true}};}
  fail('Admin action not found.',404);
  },'tenant:'+t.id);
  return respond(res,result.payload,result.status);
@@ -194,8 +207,9 @@ export async function createApp(options={}) {
  if((a=action.match(/^orders\/([a-f0-9]+)$/))&&method==='PATCH'){
  await tx(async ()=>{
  const row=await one('SELECT * FROM orders WHERE id=? AND tenant_id=?',a[1],t.id);if(!row)fail('Order not found.',404);const o=readOrder(row);
- if(b.markPaid===true){if(gateways.find(g=>g.id===o.gateway)?.mode!=='manual')fail('Automated payments must be verified by the provider.');if(o.state==='cancelled')fail('Cancelled order cannot be paid.');const reference=text(b.reference,200,3);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=? AND tenant_id=?','manual:'+reference,o.id,t.id);(await audit(t.id,req.user.id,'payment.manual-confirmation'));}
- if(b.state){if(!['new','processing','fulfilled','cancelled'].includes(b.state))fail('Invalid order status.');if(o.state==='cancelled'&&b.state!=='cancelled')fail('Cancelled orders cannot be reopened.');const isPaid=o.paid||b.markPaid===true;if(b.state==='fulfilled'&&!isPaid)fail('Confirm payment before fulfilment.');if(b.state==='cancelled'&&isPaid)fail('Refund with your payment provider first. Contact support to reconcile the refund.');if(b.state==='cancelled'&&o.state!=='cancelled')(await release(row));await run('UPDATE orders SET state=? WHERE id=? AND tenant_id=?',b.state,o.id,t.id);}
+ if(b.markPaid===true&&gateways.find(g=>g.id===o.gateway)?.mode!=='manual')fail('Automated payments must be verified by the provider.');
+ if(b.markPaid===true&&!o.paid){if(o.state==='cancelled')fail('Cancelled order cannot be paid.');const reference=text(b.reference,200,3);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=? AND tenant_id=?','manual:'+reference,o.id,t.id);(await audit(t.id,req.user.id,'payment.manual-confirmation'));await notify('payment',o.id,o.customer.email,orderMail(o,t),{replyTo:o.seller?.email||t.settings.contactEmail});}
+ if(b.state){if(!['new','processing','fulfilled','cancelled'].includes(b.state))fail('Invalid order status.');if(o.state==='cancelled'&&b.state!=='cancelled')fail('Cancelled orders cannot be reopened.');const isPaid=o.paid||b.markPaid===true;if(b.state==='fulfilled'&&!isPaid)fail('Confirm payment before fulfilment.');if(b.state==='cancelled'&&isPaid)fail('Refund with your payment provider first. Contact support to reconcile the refund.');if(b.state==='cancelled'&&o.state!=='cancelled')(await release(row));await run('UPDATE orders SET state=? WHERE id=? AND tenant_id=?',b.state,o.id,t.id);if(b.state!==o.state)await notify('order_status',id(),o.customer.email,{...orderMail(o,t),state:b.state},{replyTo:o.seller?.email||t.settings.contactEmail});}
  },'tenant:'+t.id);return respond(res,{ok:true});
  }
  if(action==='export'&&method==='GET'){
@@ -206,10 +220,10 @@ export async function createApp(options={}) {
  }
  if(path==='/api/operator'&&method==='GET'){requireOperator(req);return respond(res,{tenants:(await all('SELECT t.*,u.email FROM tenants t JOIN users u ON u.id=t.owner ORDER BY t.created DESC')).map(unpack),requests:(await all('SELECT r.*,t.slug FROM requests r JOIN tenants t ON t.id=r.tenant_id ORDER BY r.created DESC')),audit:(await all('SELECT * FROM audit ORDER BY created DESC LIMIT 200'))});}
  if((m=path.match(/^\/api\/operator\/([a-f0-9]+)$/))&&method==='PATCH'){
- requireOperator(req);await tx(async ()=>{const t=await getTenantId(m[1]);if(!t)fail('Store not found.',404);if(!['active','trial','suspended','cancelled'].includes(b.status))fail('Invalid rental status.');const trialEnd=b.status==='trial'?Date.now()+integer(b.trialDays||14,90,1)*86400000:t.trial_end;await run('UPDATE tenants SET status=?,trial_end=? WHERE id=?',b.status,trialEnd,t.id);await audit(t.id,req.user.id,'operator.status.'+b.status);},'tenant:'+m[1]);return respond(res,{ok:true});
+ requireOperator(req);await tx(async ()=>{const t=await getTenantId(m[1]);if(!t)fail('Store not found.',404);if(!['active','trial','suspended','cancelled'].includes(b.status))fail('Invalid rental status.');const trialEnd=b.status==='trial'?Date.now()+integer(b.trialDays||14,90,1)*86400000:t.trial_end;await run('UPDATE tenants SET status=?,trial_end=? WHERE id=?',b.status,trialEnd,t.id);await audit(t.id,req.user.id,'operator.status.'+b.status);if(t.status!==b.status){const owner=await one('SELECT email FROM users WHERE id=?',t.owner);await notify('rental',id(),owner?.email,{store:t.settings.name,status:b.status});}},'tenant:'+m[1]);return respond(res,{ok:true});
  }
  if((m=path.match(/^\/api\/operator\/([a-f0-9]+)\/reset$/))&&method==='POST'){
- requireOperator(req);const t=(await getTenantId(m[1]));if(!t)fail('Store not found.',404);const token=randomBytes(32).toString('hex');await run('INSERT INTO resets VALUES(?,?,?)',hash(token),t.owner,Date.now()+3600000);(await audit(t.id,req.user.id,'operator.password-reset-issued'));return respond(res,{token,expiresInMinutes:60});
+ requireOperator(req);const t=(await getTenantId(m[1]));if(!t)fail('Store not found.',404);const token=randomBytes(32).toString('hex'),expires=Date.now()+3600000;const queued=await tx(async()=>{await run('DELETE FROM resets WHERE user_id=?',t.owner);await run('INSERT INTO resets VALUES(?,?,?)',hash(token),t.owner,expires);await audit(t.id,req.user.id,'operator.password-reset-issued');const owner=await one('SELECT email FROM users WHERE id=?',t.owner);return notify('reset',hash(token),owner?.email,{token},{expires});},'password-reset');return respond(res,{queued,...(queued?{}:{token}),expiresInMinutes:60});
  }
  if((m=path.match(/^\/api\/images\/([a-f0-9]+)$/))&&method==='GET'){
  const row=(await one('SELECT * FROM images WHERE id=?',m[1]));const t=row?(await getTenantId(row.tenant_id)):null;if(!row||(!((available(t)&&t.settings.published&&(await storefrontRestriction(t.id))!=='suspend')||req.user?.id===t.owner)))fail('Image not found.',404);res.writeHead(200,{'Content-Type':row.mime,'Cache-Control':'private, max-age=300'});return res.end(Buffer.from(row.bytes));
@@ -225,6 +239,6 @@ export async function createApp(options={}) {
  }catch(e){if(!res.headersSent){if(!e.status)console.error('Request failed:',e.code||e.name);respond(res,{error:e.status?e.message:'Something went wrong. Please try again.'},e.status||500);}else res.end();}
  });
  async function checkProductImages(p,tid){if(p.image.startsWith('/api/images/')&&!(await one('SELECT id FROM images WHERE id=? AND tenant_id=?',p.image.split('/').pop(),tid)))fail('Image does not belong to this store.');}
- server.on('close',()=>{clearInterval(timer);void database.close().catch(error=>console.error('Database close failed:',error.code||error.name));});return {server,db:database.raw,database};
+ server.on('close',()=>{clearInterval(timer);clearInterval(mailTimer);void database.close().catch(error=>console.error('Database close failed:',error.code||error.name));});return {server,db:database.raw,database};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){const {server}=await createApp();server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>console.log('ICSS Plaza listening on port '+(process.env.PORT||3000)));}

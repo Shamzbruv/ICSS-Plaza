@@ -97,10 +97,14 @@ A single persistent volume stores the SQLite database, uploaded media, audit rec
 ## Vendor reports and store enforcement
 
 - The platform refund policy covers ICSS Plaza rentals and direct charges only. Independent vendors handle sales, deliveries, returns, refunds and warranties, subject to applicable consumer rights.
-- Shoppers can file a report at `/report` or from a storefront/receipt. They receive a private case key once and use it to track the case, send updates or request a review. No account or automated case email is needed. The dashboard does not send email alerts; operators should check the queue regularly.
+- Shoppers can file a report at `/report` or from a storefront/receipt. They receive a private case key once and use it to track the case, send updates or request a review. No account is needed. When Resend is configured, case emails notify participants without including evidence or access keys.
 - `/operator` shows open, closed and urgent cases. Keep notes internal, redact the summary before sharing it with the vendor, and record the reason for restrictions. A vendor responds from **Vendor reports** in its dashboard. Case restrictions are independent of billing or rental status.
 - Case descriptions, contact addresses, messages and evidence are encrypted with the existing application key. Evidence is limited to two private images. Closed cases are purged after one year unless on hold or supporting an active restriction. Protect the database and key backups.
 - New orders record the seller identity and vendor policies shown at checkout. Existing orders and payment verification remain accessible to authorised users during investigation.
+
+## Email
+
+See [Resend setup](docs/resend-email.md) for branded transactional sending, Supabase Auth SMTP and incoming support replies.
 
 ## Business operation and limits
 
@@ -108,7 +112,7 @@ A single persistent volume stores the SQLite database, uploaded media, audit rec
 - Trial duration is 14 days. Expired trials, suspended tenants and cancelled rentals are not publicly accessible. Owners retain dashboard and export access unless their account is separately disabled by an operational process.
 - Public stores require seller contact/address, delivery, returns, privacy, terms, at least one active product and an enabled default payment method.
 - “Sell anything” means lawful permitted products/services. Regulated goods and provider-prohibited categories are not automatically allowed.
-- Services use manual fulfilment. Automated appointment booking, digital-file delivery, real-time courier rates and email/SMS notifications are not included in this version.
+- Services use manual fulfilment. Automated appointment booking, digital-file delivery, real-time courier rates and SMS notifications are not included in this version.
 - Custom domains, recurring subscription billing, automatic email verification and email password recovery are not integrated. Store routing is path-based. Password recovery is operator-assisted after identity verification.
 - Refunds and chargebacks are handled with the payment provider and reconciled operationally. This version does not call provider refund APIs or automatically ingest later refund/chargeback webhooks.
 - Unpaid orders reserve stock until the merchant cancels them. Operators should monitor abandoned/pending orders; no hidden auto-cancellation is performed.

@@ -4,11 +4,12 @@ import { resolve } from 'node:path';
 import pg from 'pg';
 import { sqliteSchema } from './sqlite-schema.js';
 import { trustSchema } from './trust-schema.js';
+import { mailSchema } from './mail-schema.js';
 
 export function openSqlite(dataDir) {
   const db = new DatabaseSync(resolve(dataDir, 'plaza.sqlite'));
   db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
-  db.exec(sqliteSchema + trustSchema);
+  db.exec(sqliteSchema + trustSchema + mailSchema);
   const scope = new AsyncLocalStorage();
   let queue = Promise.resolve();
   const exclusive = task => {

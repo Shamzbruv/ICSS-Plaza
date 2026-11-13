@@ -12,6 +12,7 @@ also use in-process state.
 1. Open the dedicated ICSS Plaza project. Apply
    [the backend migration](../supabase/migrations/20261113163846_icss_plaza_backend.sql)
    and the [vendor trust migration](../supabase/migrations/20261113163850_vendor_trust.sql)
+   and [email migration](../supabase/migrations/20261113165453_resend_mail.sql)
    in that order through the Supabase migration workflow.
 2. From **Connect → Session pooler**, copy the Postgres URI and substitute the
    database password, URL-encoding it if required. Use port 5432. The app verifies

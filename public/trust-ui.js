@@ -9,7 +9,7 @@ const reportUrl=slug=>'/report?store='+encodeURIComponent(slug);
 
 export function publicReportPage({nav,footer,query}) {
   const raw=query.get('store')||'', slug=/^[a-z0-9-]{3,48}$/.test(raw)?raw:'';
-  const ref=query.get('order')||'';
+  const ref=query.get('order')||'',caseId=query.get('case')||'';
   return nav()+`<main class="wrap trust-page">
     <header><div class="eyebrow">ICSS Plaza · Trust &amp; safety</div><h1>Report a vendor</h1><p>Tell us what happened with an independent store. You don’t need an account or an order to report a serious concern.</p></header>
     <div class="note">For a return, refund or delivery update, contact the seller first when safe. <a href="/legal/shopping">Shopping and refund guidance</a> · <a href="/legal/vendor-reports">How investigations work</a></div>
@@ -29,7 +29,7 @@ export function publicReportPage({nav,footer,query}) {
       </section>
       <div><section class="panel"><h2>Track a report</h2><p>Use the reference and private access key shown when you submitted your report.</p>
         <form data-form="report-lookup">
-          <label class="field">Report reference<input name="reference" required minlength="24" maxlength="24" autocomplete="off" spellcheck="false"></label>
+          <label class="field">Report reference<input name="reference" value="${esc(/^[a-f0-9]{24}$/.test(caseId)?caseId:'')}" required minlength="24" maxlength="24" autocomplete="off" spellcheck="false"></label>
           <label class="field">Private access key<input name="accessKey" type="password" required minlength="64" maxlength="64" autocomplete="off" spellcheck="false"></label>
           <div class="form-error" role="alert"></div><button class="btn outline" type="submit">Check case status</button>
         </form></section><div id="report-result" tabindex="-1" aria-live="polite"></div></div>
