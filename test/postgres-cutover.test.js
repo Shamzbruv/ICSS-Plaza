@@ -24,8 +24,8 @@ test('SQLite import preserves encrypted data and images; wrong key rolls back al
     const pool = createPostgresPool(migratedURL.toString(), false);
     postgres = openPostgres(pool);
     const { readFile } = await import('node:fs/promises');
-    await pool.query(await readFile(new URL('../supabase/migrations/20261113141000_icss_plaza_backend.sql', import.meta.url), 'utf8'));
-    await pool.query(await readFile(new URL('../supabase/migrations/20261113162000_vendor_trust.sql', import.meta.url), 'utf8'));
+    await pool.query(await readFile(new URL('../supabase/migrations/20261113163846_icss_plaza_backend.sql', import.meta.url), 'utf8'));
+    await pool.query(await readFile(new URL('../supabase/migrations/20261113163850_vendor_trust.sql', import.meta.url), 'utf8'));
     const sqlite = openSqlite(dir);
     try {
       await sqlite.run('INSERT INTO users VALUES(?,?,?,?)','owner','owner@example.com','hashed',Date.now());

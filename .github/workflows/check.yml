@@ -40,6 +40,6 @@ jobs:
       - name: Prepare and test Postgres
         run: |
           psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;'
-          psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113141000_icss_plaza_backend.sql
-          psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113162000_vendor_trust.sql
+          psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113163846_icss_plaza_backend.sql
+          psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113163850_vendor_trust.sql
           node --test test/platform.test.js test/postgres-cutover.test.js
