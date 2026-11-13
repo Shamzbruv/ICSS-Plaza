@@ -7,7 +7,7 @@ import {createApp} from '../src/server.js';
 import {createHmac} from 'node:crypto';
 const dir=mkdtempSync(join(tmpdir(),'icss-plaza-'));
 const origin='http://localhost:3000';
-const {server,db}=createApp({dataDir:dir,baseURL:origin,encryptionKey:'12'.repeat(32),operatorEmail:'operator@example.com',operatorPassword:'strong-operator-password',production:false,fetcher:async()=>{throw Error('No external network in platform tests.');}});
+const {server,database}=await createApp({databaseURL:process.env.PLAZA_TEST_DATABASE_URL||'',dataDir:dir,baseURL:origin,encryptionKey:'12'.repeat(32),operatorEmail:'operator@example.com',operatorPassword:'strong-operator-password',production:false,fetcher:async()=>{throw Error('No external network in platform tests.');}});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base='http://127.0.0.1:'+server.address().port;
 after(async()=>{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});});
@@ -40,6 +40,17 @@ test('checkout calculates authoritative totals and reserves inventory exactly on
  assert.equal((await req('/api/stores/alice-store/orders','POST',{...b,lines:[{productId:product.id,quantity:1}]})).status,409);
  const tooMuch=await req('/api/stores/alice-store/orders','POST',{...b,idempotency:'another-idempotency-key-1234'});assert.equal(tooMuch.status,409);
 });
+test('concurrent checkout retries reserve stock once',async()=>{
+ const b={...checkout(),lines:[{productId:product.id,quantity:1}],idempotency:'concurrent-checkout-retry'};
+ const results=await Promise.all([req('/api/stores/alice-store/orders','POST',b),req('/api/stores/alice-store/orders','POST',b)]);
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,201]);
+ assert.equal(results[0].data.order.id,results[1].data.order.id);
+ const orderId=results[0].data.order.id;
+ const cancel=await Promise.all([req('/api/admin/'+alice.tenant.id+'/orders/'+orderId,'PATCH',{state:'cancelled'},alice),req('/api/admin/'+alice.tenant.id+'/orders/'+orderId,'PATCH',{state:'cancelled'},alice)]);
+ assert.deepEqual(cancel.map(r=>r.status),[200,200]);
+ const admin=await req('/api/admin/'+alice.tenant.id,'GET',null,alice);
+ assert.equal(admin.data.products[0].stock,1);
+});
 test('private orders need their access token and other tenants cannot change them',async()=>{
  assert.equal((await req('/api/orders/'+oid)).status,404);assert.equal((await req('/api/orders/'+oid+'?token=incorrect')).status,404);assert.equal((await req('/api/orders/'+oid+'?token='+token)).status,200);
  assert.equal((await req('/api/admin/'+bob.tenant.id+'/orders/'+oid,'PATCH',{markPaid:true,reference:'spoof'},bob)).status,404);
@@ -52,7 +63,7 @@ test('cancelling an unpaid order restores inventory once; paid fulfilment is pro
  assert.equal((await req('/api/admin/'+alice.tenant.id+'/orders/'+oid,'PATCH',{state:'new'},alice)).status,400);
  r=await req('/api/stores/alice-store/orders','POST',{...checkout(),idempotency:'manual-confirm-order-1234567'});assert.equal(r.status,201);const id=r.data.order.id;
  assert.equal((await req('/api/admin/'+alice.tenant.id+'/orders/'+id,'PATCH',{markPaid:true,reference:'BANK-REF-12345',state:'fulfilled'},alice)).status,200);
- const row=db.prepare('SELECT * FROM orders WHERE id=?').get(id);assert.equal(row.paid,1);assert.equal(row.state,'fulfilled');
+ const row=await database.one('SELECT * FROM orders WHERE id=?',id);assert.equal(row.paid,1);assert.equal(row.state,'fulfilled');
 });
 test('image ownership and MIME checks prevent unsafe and cross-tenant uploads',async()=>{
  const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfgoAAAAASUVORK5CYII=';
@@ -65,7 +76,7 @@ test('image ownership and MIME checks prevent unsafe and cross-tenant uploads',a
 });
 test('gateway credentials are encrypted and admin responses redact them',async()=>{
  let r=await req('/api/admin/'+alice.tenant.id+'/gateways/fygaro','PUT',{buttonURL:'https://www.fygaro.com/en/pb/example/',keyId:'test-key',secret:'test-secret-do-not-expose',environment:'live'},alice);assert.equal(r.status,200);
- const raw=db.prepare('SELECT config FROM gateways WHERE tenant_id=? AND provider=?').get(alice.tenant.id,'fygaro');assert.ok(!raw.config.includes('test-secret'));
+ const raw=await database.one('SELECT config FROM gateways WHERE tenant_id=? AND provider=?',alice.tenant.id,'fygaro');assert.ok(!raw.config.includes('test-secret'));
  r=await req('/api/admin/'+alice.tenant.id,'GET',null,alice);assert.ok(!JSON.stringify(r.data).includes('test-secret'));
 });
 test('Fygaro hooks reject forgery, validate amount/currency and deduplicate payment',async()=>{
@@ -74,11 +85,11 @@ test('Fygaro hooks reject forgery, validate amount/currency and deduplicate paym
  const hook={customReference:order.id,transactionId:'fygaro-transaction-123',currency:'JMD',amount:(order.total/100).toFixed(2)};
  const send=async(payload,signed=true)=>{const raw=JSON.stringify(payload),t=String(Math.floor(Date.now()/1000)),sig=createHmac('sha256','test-secret-do-not-expose').update(t+'.'+raw).digest('hex');return fetch(base+'/api/payments/'+alice.tenant.id+'/fygaro/hook',{method:'POST',headers:{'Content-Type':'application/json','Fygaro-Key-ID':'test-key','Fygaro-Signature':'t='+t+',v1='+(signed?sig:'0'.repeat(64))},body:raw});};
  assert.equal((await send(hook,false)).status,401);assert.equal((await send({...hook,amount:'0.01'})).status,409);assert.equal((await send({...hook,currency:'USD'})).status,409);assert.equal((await send(hook)).status,200);assert.equal((await send(hook)).status,200);
- assert.equal(db.prepare('SELECT paid FROM orders WHERE id=?').get(order.id).paid,1);
+ assert.equal((await database.one('SELECT paid FROM orders WHERE id=?',order.id)).paid,1);
  const update=await req('/api/admin/'+alice.tenant.id+'/orders/'+order.id,'PATCH',{markPaid:true,reference:'manual-fake'},alice);assert.equal(update.status,400);
 });
 test('trial expiry and operator suspension close public checkout, only operator can change rentals',async()=>{
- db.prepare('UPDATE tenants SET trial_end=? WHERE id=?').run(Date.now()-1,alice.tenant.id);
+ await database.run('UPDATE tenants SET trial_end=? WHERE id=?',Date.now()-1,alice.tenant.id);
  assert.equal((await req('/api/stores/alice-store')).status,404);
  assert.equal((await req('/api/operator/'+alice.tenant.id,'PATCH',{status:'active'},alice)).status,403);
  const login=await req('/api/login','POST',{email:'operator@example.com',password:'strong-operator-password'});const op={cookie:login.cookie};op.csrf=(await req('/api/session','GET',null,op)).data.csrf;

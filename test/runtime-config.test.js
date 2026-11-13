@@ -65,7 +65,7 @@ for (const hasDomain of [true, false]) test(`production boots with no BASE_URL/k
   if (!hasDomain) delete env.RAILWAY_PUBLIC_DOMAIN;
   delete env.BASE_URL; delete env.ENCRYPTION_KEY; delete env.OPERATOR_EMAIL; delete env.OPERATOR_PASSWORD;
   // Port zero is passed to createApp's real HTTP server so tests do not reserve a fixed port.
-  const script="import {createApp} from './src/server.js'; const {server}=createApp(); server.listen(0,'127.0.0.1',()=>console.log('READY '+server.address().port));";
+  const script="import {createApp} from './src/server.js'; const {server}=await createApp(); server.listen(0,'127.0.0.1',()=>console.log('READY '+server.address().port));";
   const child=spawn(process.execPath,['--input-type=module','-e',script],{cwd:new URL('..',import.meta.url),env,stdio:['ignore','pipe','pipe']});
   t.after(async()=>{child.kill();await new Promise(r=>child.exitCode!==null||child.signalCode!==null?r():child.once('exit',r));rmSync(dataDir,{recursive:true,force:true});});
   const port=await new Promise((resolve,reject)=>{
