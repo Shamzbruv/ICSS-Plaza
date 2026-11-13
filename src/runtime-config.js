@@ -44,7 +44,7 @@ export function resolveEncryptionKey({ encryptionKey, dataDir, db, env = process
   const hasTrust = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vendor_reports'").get();
   const sample = hasTrust && db.prepare('SELECT payload FROM vendor_reports LIMIT 1').get();
   if(sample) encrypted.push(sample.payload);
-  for(const table of ['email_outbox','email_inbound']){
+  for(const table of ['email_outbox','email_inbound','plaza_consultations']){
     if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))continue;
     const sample=db.prepare("SELECT payload FROM "+table+" WHERE payload<>'' LIMIT 1").get();
     if(sample)encrypted.push(sample.payload);

@@ -43,4 +43,5 @@ jobs:
           psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113163846_icss_plaza_backend.sql
           psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113163850_vendor_trust.sql
           psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113165453_resend_mail.sql
-          node --test test/platform.test.js test/postgres-cutover.test.js test/mailer.test.js
+          psql "$PLAZA_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261113234248_platform_ops.sql
+          node --test test/platform.test.js test/postgres-cutover.test.js test/mailer.test.js test/platform-billing.test.js

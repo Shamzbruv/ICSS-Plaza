@@ -3,6 +3,9 @@ import { createPostgresPool, openPostgres, openSqlite, revenueSQL } from './data
 import { assertPostgresCutover, postgresKey } from './postgres-cutover.js';
 import { createVendorTrust } from './vendor-trust.js';
 import { createMailer } from './mailer.js';
+import { createPlatformBilling } from './platform-billing.js';
+import { createPlatformOps } from './platform-ops.js';
+import { launchTestAccess } from './test-access.js';
 import { policyVersion } from '../public/trust-data.js';
 import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
@@ -39,7 +42,9 @@ export async function createApp(options={}) {
  const notify=mailer.enqueue;
  const orderMail=(o,t)=>({id:o.id,slug:o.slug||t.slug,reference:o.short_id,store:o.seller?.name||t.settings.name,amount:new Intl.NumberFormat('en-JM',{style:'currency',currency:o.currency}).format(o.total/100)});
  const audit=async (tenant,actor,action)=>(await run('INSERT INTO audit VALUES(?,?,?,?,?)',id(),tenant,actor,action,Date.now()));
- function available(t){return t && (t.status==='active' || (t.status==='trial' && t.trial_end>Date.now()));}
+ const billing=createPlatformBilling({db:database,env:options.billingEnv,fetcher:options.billingFetcher,origin:baseURL,audit,notify});
+ const ops=createPlatformOps({db:database,key,notify,operatorEmail,limit,email,audit,testAccess:options.testAccess??launchTestAccess});
+ const available=billing.available;
  const unpack=t=>t?{...t,settings:JSON.parse(t.settings)}:null;
  const getTenant=async slug=>unpack((await one('SELECT * FROM tenants WHERE slug=?',slug)));
  const getTenantId=async tid=>unpack((await one('SELECT * FROM tenants WHERE id=?',tid)));
@@ -58,7 +63,7 @@ export async function createApp(options={}) {
  const rate=new Map();function limit(req,bucket,max){const ip=process.env.TRUST_PROXY==='1'?String(req.headers['x-forwarded-for']||req.socket.remoteAddress).split(',')[0]:req.socket.remoteAddress;const k=bucket+':'+ip;const now=Date.now();let r=rate.get(k);if(!r||r.until<now)r={count:0,until:now+900000};if(++r.count>max)fail('Too many requests. Try again in 15 minutes.',429);rate.set(k,r);}
  const trust=createVendorTrust({db:database,key,limit,email,requireOperator,requireUser,audit,notify,operatorEmail});
  let lastPurge=0;
- const timer=setInterval(async ()=>{for(const [k,v]of rate)if(v.until<Date.now())rate.delete(k);try{await run('DELETE FROM sessions WHERE expires<?',Date.now());await run('DELETE FROM resets WHERE expires<?',Date.now());if(Date.now()-lastPurge>=86400000){await trust.purge();await mailer.purge();lastPurge=Date.now();}}catch(error){console.error('Scheduled cleanup failed:',error.code||error.name);}},60000);timer.unref();
+ const timer=setInterval(async ()=>{for(const [k,v]of rate)if(v.until<Date.now())rate.delete(k);try{await run('DELETE FROM sessions WHERE expires<?',Date.now());await run('DELETE FROM resets WHERE expires<?',Date.now());if(Date.now()-lastPurge>=86400000){await trust.purge();await mailer.purge();await ops.purge();lastPurge=Date.now();}}catch(error){console.error('Scheduled cleanup failed:',error.code||error.name);}},60000);timer.unref();
  const mailTimer=setInterval(()=>void mailer.drain().catch(error=>console.error('Email queue failed:',error.code||error.name)),4000);mailTimer.unref();
  function respond(res,data,status=200){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));}
  function redirect(res,url){res.writeHead(303,{Location:url,'Cache-Control':'no-store'});res.end();}
@@ -72,14 +77,31 @@ export async function createApp(options={}) {
  try {
  const u=new URL(req.url,baseURL || 'http://localhost'),path=u.pathname,method=req.method;
  const token=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('plaza_session='))?.slice(14);
- const s=token?(await one('SELECT s.*,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?',hash(token),Date.now())):null;
+ const s=token?(await one("SELECT s.*,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>? AND NOT EXISTS (SELECT 1 FROM tenants t WHERE t.owner=u.id AND t.slug LIKE 'plaza-test-%' AND (t.trial_end<=? OR t.status<>'trial'))",hash(token),Date.now(),Date.now())):null;
  if(s){req.user={id:s.user_id,email:s.email};req.csrf=s.csrf;}
- const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path)||path==='/api/webhooks/resend';
+ const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path)||path==='/api/webhooks/resend'||/^\/api\/billing\/hooks\/(fygaro|paypal)$/.test(path);
  if(!['GET','HEAD'].includes(method)){
  if(!webhook){const origin=resolveRequestOrigin({baseURL,host:req.headers.host,production});if(!origin||req.headers.origin!==origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
  req.body=await body(req);
  }
  const b=req.body||{};
+ if(path==='/api/test-access'&&method==='POST'){if(req.user)fail('Open the invitation in a private window first.',409);const u=await ops.claimTest(req,b);await session(req,res,u);return respond(res,{email:u.email,expiresAt:u.expiresAt},201);}
+ if(path==='/api/consultations'&&method==='POST')return respond(res,await ops.consult(req,b),201);
+ if(path==='/api/billing/hooks/fygaro'&&method==='POST'){await billing.fygaroHook(b,req.raw,req.headers);return respond(res,{received:true});}
+ if(path==='/api/billing/hooks/paypal'&&method==='POST'){await billing.paypalHook(b,req.headers);return respond(res,{received:true});}
+ if(path==='/api/operator/overview'&&method==='GET'){requireOperator(req);return respond(res,{...(await ops.overview()),...(await mailer.stats()),database:database.kind,billing:billing.ready,paypalMode:billing.paypalMode});}
+ const tenantDetail=path.match(/^\/api\/operator\/stores\/([a-f0-9]{24})$/);
+ if(tenantDetail&&method==='GET'){requireOperator(req);const t=await getTenantId(tenantDetail[1]);if(!t)fail('Store not found.',404);const result={name:t.settings.name,slug:t.slug,status:t.status,published:t.settings.published,accessible:await available(t),restriction:await storefrontRestriction(t.id)||null};for(const table of ['orders','products','images','vendor_reports'])result[table]=(await one('SELECT COUNT(*) AS n FROM '+table+' WHERE tenant_id=?',t.id)).n;return respond(res,result);}
+ const rentalCancel=path.match(/^\/api\/operator\/billing\/rentals\/([a-f0-9]{24})\/cancel$/);
+ if(rentalCancel&&method==='POST'){requireOperator(req);limit(req,'operator-cancel-rental',15);const row=await one('SELECT tenant_id FROM plaza_rentals WHERE id=?',rentalCancel[1]);if(!row)fail('Rental not found.',404);await billing.cancel({id:row.tenant_id},rentalCancel[1],req.user.id);return respond(res,{ok:true});}
+ if(path==='/api/operator/consultations'&&method==='GET'){requireOperator(req);return respond(res,{requests:await ops.consultations()});}
+ const consultationRoute=path.match(/^\/api\/operator\/consultations\/([a-f0-9]{24})$/);
+ if(consultationRoute&&method==='PATCH'){requireOperator(req);if(b.message&&!mailer.configured)fail('Connect Resend to send an email from this console.',503);await ops.consultation(consultationRoute[1],b,req.user.id);return respond(res,{ok:true});}
+ if(path==='/api/operator/test-account'&&method==='POST'){requireOperator(req);limit(req,'operator-test-account',8);return respond(res,await ops.createTest(req.user.id),201);}
+ if(path==='/api/operator/billing'){requireOperator(req);if(method==='GET')return respond(res,await billing.list());if(method==='POST')return respond(res,await billing.plan(b,req.user.id),201);}
+ const planRoute=path.match(/^\/api\/operator\/billing\/plans\/([a-f0-9]{24})$/);
+ if(planRoute&&method==='PATCH'){requireOperator(req);await billing.setPlan(planRoute[1],b,req.user.id);return respond(res,{ok:true});}
+
  if(path==='/api/webhooks/resend'&&method==='POST'){await mailer.receive(req.raw,req.headers,b);return respond(res,{received:true});}
  const mailReply=path.match(/^\/api\/operator\/mail\/([a-f0-9-]{36})\/reply$/i);
  if(mailReply&&method==='POST'){requireOperator(req);limit(req,'mail-reply',30);const message=text(b.message,5000,10);const requestId=text(b.requestId,32,32);if(!/^[a-f0-9]{32}$/.test(requestId))fail('Invalid request reference.');await mailer.replyToInbound(mailReply[1],message,requestId);return respond(res,{queued:true},202);}
@@ -89,28 +111,28 @@ export async function createApp(options={}) {
  if(path==='/api/catalog'&&method==='GET')return respond(res,{gateways,operator:'iCreate Solutions & Services',trialDays:14});
  if(path==='/api/session'&&method==='GET'){const tenants=req.user?(await all('SELECT * FROM tenants WHERE owner=?',req.user.id)).map(unpack):[];return respond(res,{user:req.user||null,csrf:req.csrf||'',tenants,operator:!!operatorEmail&&req.user?.email===operatorEmail});}
  if(path==='/api/signup'&&method==='POST'){
- limit(req,'signup',10);const em=email(b.email),pw=passwordHash(b.password),slug=text(b.slug,48,3).toLowerCase();if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||['admin','demo','api','www','plaza','support'].includes(slug))fail('Choose a store address using letters, numbers and hyphens.');
+ limit(req,'signup',10);const em=email(b.email),pw=passwordHash(b.password),slug=text(b.slug,48,3).toLowerCase();if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||['admin','demo','api','www','plaza','support','developer','consultation'].includes(slug)||slug.startsWith('plaza-test-'))fail('Choose a store address using letters, numbers and hyphens.');
  if(operatorEmail&&em===operatorEmail)fail('This email is reserved. Contact Plaza support.',409);
  if(b.acceptTerms!==true)fail('Accept the platform terms and independent vendor agreement to continue.');
  const uid=id(),tid=id(),storeName=text(b.name,180,1);(await tx(async ()=>{if((await one('SELECT id FROM users WHERE email=?',em)))fail('This email is already registered. Sign in instead.',409);if((await one('SELECT id FROM tenants WHERE slug=?',slug)))fail('That store address is taken.',409);await run('INSERT INTO users VALUES(?,?,?,?)',uid,em,pw,Date.now());(await run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)',tid,slug,uid,'trial',Date.now()+14*86400000,JSON.stringify({...defaults(),name:storeName,contactEmail:em}),Date.now()));await notify('welcome',uid,em,{store:storeName});},'signup'));
  (await session(req,res,{id:uid,email:em}));await audit(tid,uid,'signup.vendor-agreement.'+policyVersion);return respond(res,{ok:true},201);
  }
  if(path==='/api/login'&&method==='POST'){
- limit(req,'login',30);const em=email(b.email),pw=text(b.password,128,1);const user=(await one('SELECT * FROM users WHERE email=?',em));if(!passwordMatches(pw,user?.password||'0000000000000000:'+ '0'.repeat(128)))fail('Email or password is incorrect.',401);await session(req,res,user);return respond(res,{ok:true});
+ limit(req,'login',30);const em=email(b.email),pw=text(b.password,128,1);const user=(await one('SELECT * FROM users WHERE email=?',em));if(!passwordMatches(pw,user?.password||'0000000000000000:'+ '0'.repeat(128)))fail('Email or password is incorrect.',401);const testStore=await one("SELECT trial_end,status FROM tenants WHERE owner=? AND slug LIKE 'plaza-test-%'",user.id);if(testStore&&(testStore.trial_end<=Date.now()||testStore.status!=='trial'))fail('This test account has expired.',403);await session(req,res,user);return respond(res,{ok:true});
  }
  if(path==='/api/logout'&&method==='POST'){if(token)(await run('DELETE FROM sessions WHERE token=?',hash(token)));res.setHeader('Set-Cookie','plaza_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');return respond(res,{ok:true});}
  if(path==='/api/password'&&method==='POST'){requireUser(req);const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwordMatches(text(b.currentPassword,128,1),user.password))fail('Current password is incorrect.',403);await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),user.id);(await run('DELETE FROM sessions WHERE user_id=?',user.id));await session(req,res,user);await notify('password_changed',hash(req.csrf),user.email);return respond(res,{ok:true});}
  if(path==='/api/reset'&&method==='POST'){limit(req,'reset',20);const resetHash=hash(text(b.token,100,1));await tx(async ()=>{const r=await one('SELECT * FROM resets WHERE token=? AND expires>?',resetHash,Date.now());if(!r)fail('Reset token is invalid or expired.');await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),r.user_id);(await run('DELETE FROM sessions WHERE user_id=?',r.user_id));await run('DELETE FROM resets WHERE user_id=?',r.user_id);const user=await one('SELECT email FROM users WHERE id=?',r.user_id);await notify('password_changed',resetHash,user?.email);},'password-reset');return respond(res,{ok:true});}
  let m;
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)$/))&&method==='GET'){
- const t=(await getTenant(m[1]));if(!available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);return respond(res,{id:t.id,slug:t.slug,settings:t.settings,checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
+ const t=(await getTenant(m[1]));if(!await available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);return respond(res,{id:t.id,slug:t.slug,settings:t.settings,checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
  }
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)\/orders$/))&&method==='POST'){
  limit(req,'checkout',60);
- const initial=await getTenant(m[1]);if(!available(initial)||!initial.settings.published)fail('This store is not currently accepting orders.',409);
+ const initial=await getTenant(m[1]);if(!await available(initial)||!initial.settings.published)fail('This store is not currently accepting orders.',409);
  const idem=text(b.idempotency,100,16),orderToken=text(b.orderToken,100,32),fingerprint=hash(JSON.stringify(b));
  const result=await tx(async ()=>{
- const t=await getTenantId(initial.id);if(!available(t)||!t.settings.published||await storefrontRestriction(t.id))fail('This store is not currently accepting orders.',409);
+ const t=await getTenantId(initial.id);if(!await available(t)||!t.settings.published||await storefrontRestriction(t.id))fail('This store is not currently accepting orders.',409);
  const existing=await one('SELECT * FROM orders WHERE tenant_id=? AND idempotency=?',t.id,idem);
  if(existing){if(existing.request_hash!==fingerprint)fail('Checkout key already used with different details.',409);return {order:readOrder(existing),existing:true};}
  const contact={name:text(b.customer?.name,160,1),email:email(b.customer?.email),phone:text(b.customer?.phone,60,3),address:text(b.customer?.address||'',1000)};
@@ -144,7 +166,7 @@ export async function createApp(options={}) {
  }
  if((m=path.match(/^\/api\/orders\/([a-f0-9]+)\/payment$/))&&method==='POST'){
  limit(req,'payment-retry',30);const o=(await orderAccess(m[1],b.token));const t=(await getTenantId(o.tenant_id));
- if(!available(t)||!t.settings.published||o.state==='cancelled'||o.paid||await storefrontRestriction(t.id))fail('This order cannot start a payment.',409);
+ if(!await available(t)||!t.settings.published||o.state==='cancelled'||o.paid||await storefrontRestriction(t.id))fail('This order cannot start a payment.',409);
  if(o.payment?.url){const safe={...o};delete safe.paymentConfig;return respond(res,{order:safe});}
  if(paymentLocks.has(o.id))fail('Payment is already starting. Try again shortly.',409);
  paymentLocks.add(o.id);
@@ -170,6 +192,10 @@ export async function createApp(options={}) {
  }
  if((m=path.match(/^\/api\/admin\/([a-f0-9]+)(?:\/(.*))?$/))){
  requireUser(req);const t=owner(req,(await getTenantId(m[1]))),action=m[2]||'';
+ if(action==='billing'&&method==='GET')return respond(res,await billing.list(t.id));
+ if(action==='billing/checkout'&&method==='POST'){limit(req,'rental-checkout',20);return respond(res,await billing.checkout(t,b));}
+ const cancelBilling=action.match(/^billing\/([a-f0-9]{24})\/cancel$/);
+ if(cancelBilling&&method==='POST'){limit(req,'rental-cancel',10);await billing.cancel(t,cancelBilling[1],req.user.id);return respond(res,{ok:true});}
  if(!action&&method==='GET')return respond(res,{tenant:t,metrics:{orderCount:(await one('SELECT COUNT(*) AS n FROM orders WHERE tenant_id=?',t.id)).n,confirmedRevenue:(await one(revenueSQL(database),t.id)).n},products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})),orders:(await all('SELECT * FROM orders WHERE tenant_id=? ORDER BY created DESC LIMIT 500',t.id)).map(r=>{const o=readOrder(r);delete o.paymentConfig;return o;}),gateways:(await all('SELECT * FROM gateways WHERE tenant_id=?',t.id)).map(g=>({provider:g.provider,enabled:!!g.enabled,environment:decrypt(g.config,key).environment,configured:true})),images:(await all('SELECT id,name,mime FROM images WHERE tenant_id=? ORDER BY created DESC',t.id)),requests:(await all('SELECT * FROM requests WHERE tenant_id=? ORDER BY created DESC',t.id))});
  if(method==='PUT'&&action==='settings'||method==='POST'&&['products','images','requests'].includes(action)||['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action)||method==='PUT'&&/^gateways\/[a-z]+$/.test(action)){
  const result=await tx(async ()=>{
@@ -178,7 +204,7 @@ export async function createApp(options={}) {
  const next=settings(b,t.settings);if(next.published&&!t.settings.published&&b.vendorAcknowledgement!==true)fail('Confirm the independent vendor agreement before publishing.');for(const k of ['heroImage','logo'])if(next[k].startsWith('/api/images/')&&!(await one('SELECT id FROM images WHERE id=? AND tenant_id=?',next[k].split('/').pop(),t.id)))fail('Image does not belong to this store.');
  if(next.currency!==t.settings.currency&&(await one('SELECT id FROM orders WHERE tenant_id=? LIMIT 1',t.id)))fail('Currency cannot change after the first order. Contact support.');
  const methods=(await activeGateways({...t,settings:next}));if(next.defaultPayment&&!methods.some(g=>g.provider===next.defaultPayment))fail('Default payment must be enabled and support this currency.');
- if(next.published){if(!available(t))fail('Your store rental is inactive.',403);if(!next.contactEmail||!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('Add seller contact details, business address, delivery, return, privacy and terms policies before publishing.');if(!next.defaultPayment)fail('Set up and select a default payment method before publishing.');if(!(await all('SELECT data FROM products WHERE tenant_id=?',t.id)).some(p=>JSON.parse(p.data).active))fail('Add an active product before publishing.');}
+ if(next.published){if(!await available(t))fail('Your store rental is inactive.',403);if(!next.contactEmail||!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('Add seller contact details, business address, delivery, return, privacy and terms policies before publishing.');if(!next.defaultPayment)fail('Set up and select a default payment method before publishing.');if(!(await all('SELECT data FROM products WHERE tenant_id=?',t.id)).some(p=>JSON.parse(p.data).active))fail('Add an active product before publishing.');}
  (await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify(next),t.id));await audit(t.id,req.user.id,'settings.updated');if(next.published&&!t.settings.published)await audit(t.id,req.user.id,'publish.vendor-agreement.'+policyVersion);return {payload:{settings:next}};
  }
  if(action==='products'&&method==='POST'){
@@ -198,7 +224,7 @@ export async function createApp(options={}) {
  const config=validateGateway(g.id,b,old?decrypt(old.config,key):{});if(!g.currencies.includes(t.settings.currency))fail('This provider does not support the store currency.');
  (await run('INSERT INTO gateways VALUES(?,?,?,?) ON CONFLICT(tenant_id,provider) DO UPDATE SET enabled=excluded.enabled,config=excluded.config',t.id,g.id,1,encrypt(config,key)));await audit(t.id,req.user.id,'gateway.configured.'+g.id);return {payload:{ok:true}};
  }
- if(action==='requests'&&method==='POST'){if(!['cancellation','deletion','billing','support'].includes(b.kind))fail('Invalid request.');const requestId=id();await run('INSERT INTO requests VALUES(?,?,?,?,?)',requestId,t.id,b.kind,text(b.note||'',3000),Date.now());if(b.kind==='cancellation'){await run('UPDATE tenants SET status=? WHERE id=?','cancelled',t.id);(await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify({...t.settings,published:false}),t.id));}await audit(t.id,req.user.id,'request.'+b.kind);const mail={store:t.settings.name,type:b.kind};await notify('service_request',requestId,req.user.email,mail);await notify('service_operator',requestId,operatorEmail,mail);return {payload:{ok:true}};}
+ if(action==='requests'&&method==='POST'){if(b.kind==='cancellation'&&await one("SELECT id FROM plaza_rentals WHERE tenant_id=? AND provider='paypal' AND provider_id IS NOT NULL AND status NOT IN ('cancelled','expired') LIMIT 1",t.id))fail('Cancel PayPal automatic renewal in Rental billing before closing the store.',409);if(!['cancellation','deletion','billing','support'].includes(b.kind))fail('Invalid request.');const requestId=id();await run('INSERT INTO requests VALUES(?,?,?,?,?)',requestId,t.id,b.kind,text(b.note||'',3000),Date.now());if(b.kind==='cancellation'){await run('UPDATE tenants SET status=? WHERE id=?','cancelled',t.id);(await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify({...t.settings,published:false}),t.id));}await audit(t.id,req.user.id,'request.'+b.kind);const mail={store:t.settings.name,type:b.kind};await notify('service_request',requestId,req.user.email,mail);await notify('service_operator',requestId,operatorEmail,mail);return {payload:{ok:true}};}
  fail('Admin action not found.',404);
  },'tenant:'+t.id);
  return respond(res,result.payload,result.status);
@@ -226,11 +252,11 @@ export async function createApp(options={}) {
  requireOperator(req);const t=(await getTenantId(m[1]));if(!t)fail('Store not found.',404);const token=randomBytes(32).toString('hex'),expires=Date.now()+3600000;const queued=await tx(async()=>{await run('DELETE FROM resets WHERE user_id=?',t.owner);await run('INSERT INTO resets VALUES(?,?,?)',hash(token),t.owner,expires);await audit(t.id,req.user.id,'operator.password-reset-issued');const owner=await one('SELECT email FROM users WHERE id=?',t.owner);return notify('reset',hash(token),owner?.email,{token},{expires});},'password-reset');return respond(res,{queued,...(queued?{}:{token}),expiresInMinutes:60});
  }
  if((m=path.match(/^\/api\/images\/([a-f0-9]+)$/))&&method==='GET'){
- const row=(await one('SELECT * FROM images WHERE id=?',m[1]));const t=row?(await getTenantId(row.tenant_id)):null;if(!row||(!((available(t)&&t.settings.published&&(await storefrontRestriction(t.id))!=='suspend')||req.user?.id===t.owner)))fail('Image not found.',404);res.writeHead(200,{'Content-Type':row.mime,'Cache-Control':'private, max-age=300'});return res.end(Buffer.from(row.bytes));
+ const row=(await one('SELECT * FROM images WHERE id=?',m[1]));const t=row?(await getTenantId(row.tenant_id)):null;if(!row||(!((await available(t)&&t.settings.published&&(await storefrontRestriction(t.id))!=='suspend')||req.user?.id===t.owner)))fail('Image not found.',404);res.writeHead(200,{'Content-Type':row.mime,'Cache-Control':'private, max-age=300'});return res.end(Buffer.from(row.bytes));
  }
  if(path.startsWith('/api/'))fail('Endpoint not found.',404);
  if(method!=='GET'&&method!=='HEAD')fail('Method not allowed.',405);
- const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|reset|report|legal(?:\/[a-z-]+)?|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
+ const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/demo)?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
  const file=resolve(publicDir,'.'+page);if(!file.startsWith(publicDir+'/')||!existsSync(file))fail('Page not found.',404);
  const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
  res.writeHead(200,{'Content-Type':types[extname(file)]||'application/octet-stream','Cache-Control':page==='/index.html'?'no-cache':'public, max-age=3600'});if(method==='HEAD')return res.end();

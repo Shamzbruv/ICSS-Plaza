@@ -135,3 +135,7 @@ Prepared for iCreate Solutions & Services. No open-source licence is granted by 
 ## Brand assets
 
 The ICSS Plaza logo family, favicon, app icons, social graphics and interface illustrations are in `public/assets/brand/`. See [the brand guide](docs/BRAND.md) for the asset inventory, usage and export instructions.
+
+## Developer console
+
+See [Platform operations](docs/platform-operations.md) for operator access, consultations, test accounts, and Fygaro/PayPal rental setup.

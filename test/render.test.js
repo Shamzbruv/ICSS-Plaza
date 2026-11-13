@@ -37,3 +37,9 @@ test('report page provides a private case form and store context',async()=>{
  assert.match(app.innerHTML,/value="abc123"/);
  assert.match(app.innerHTML,/Private access key/);
 });
+
+test('public consultation and read-only developer demo render without an operator session',async()=>{
+ const consultation=await boot('/consultation');assert.match(consultation.app.innerHTML,/Request a consultation/);
+ const demo=await boot('/developer/demo');assert.match(demo.app.innerHTML,/Sample workspace/);assert.match(demo.app.innerHTML,/Paid rentals/);
+ const privatePage=await boot('/developer');assert.match(privatePage.app.innerHTML,/Operator sign-in/);assert.doesNotMatch(privatePage.app.innerHTML,/Paid rentals/);
+});
