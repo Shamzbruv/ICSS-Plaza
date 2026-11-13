@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import { decrypt } from './model.js';
 
 const tables = ['users','tenants','sessions','products','gateways','orders','images','audit','requests','resets'];
+const trustTables = ['vendor_reports','vendor_report_events','vendor_report_evidence','vendor_restrictions'];
+const sourceHas = (source, table) => !!source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
 const marker = 'sqlite_import_v1';
 const keyPattern = /^[a-f0-9]{64}$/i;
 
@@ -14,7 +16,8 @@ export async function postgresKey(db, value) {
     ...(await db.all('SELECT config FROM gateways')).map(row => row.config),
     ...(await db.all("SELECT data::jsonb->>'paymentConfig' AS config FROM orders WHERE data::jsonb->>'paymentConfig' IS NOT NULL")).map(row => row.config)
   ];
-  try { for (const config of encrypted) decrypt(config, key); }
+  const sample = await db.one('SELECT payload FROM vendor_reports LIMIT 1');
+  try { for (const config of encrypted) decrypt(config, key); if(sample) decrypt(sample.payload,key); }
   catch { throw new Error('ENCRYPTION_KEY does not match the existing payment records. Restore the original key.'); }
   return key;
 }
@@ -24,7 +27,7 @@ export async function assertPostgresCutover(db, dataDir) {
   if (!existsSync(path)) return;
   const source = new DatabaseSync(path, { readOnly: true });
   try {
-    const hasData = tables.some(table => source.prepare('SELECT 1 FROM ' + table + ' LIMIT 1').get());
+    const hasData = [...tables,...trustTables].some(table => sourceHas(source,table)&&source.prepare('SELECT 1 FROM ' + table + ' LIMIT 1').get());
     if (hasData && !await db.one('SELECT value FROM metadata WHERE key=?', marker)) {
       throw new Error('Existing SQLite records must be imported before enabling DATABASE_URL. See the Postgres cutover instructions.');
     }
@@ -41,9 +44,10 @@ export async function importSqlite(db, file, key) {
     }
     return await db.tx(async () => {
       if (await db.one('SELECT value FROM metadata WHERE key=?', marker)) throw new Error('This Postgres database already has a completed SQLite import.');
-      for (const table of tables) if (await db.one('SELECT 1 FROM ' + table + ' LIMIT 1')) throw new Error('Import requires an empty Postgres target.');
+      for (const table of [...tables,...trustTables]) if (await db.one('SELECT 1 FROM ' + table + ' LIMIT 1')) throw new Error('Import requires an empty Postgres target.');
       const counts = {};
-      for (const table of tables) {
+      for (const table of [...tables,...trustTables]) {
+        if (!sourceHas(source,table)) continue;
         let count = 0;
         for (const row of source.prepare('SELECT * FROM ' + table).iterate()) {
           const values = Object.values(row).map(value => value instanceof Uint8Array ? Buffer.from(value) : value);

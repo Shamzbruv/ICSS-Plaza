@@ -26,5 +26,14 @@ test('demo storefront renders products and escaped custom content',async()=>{
  const {app}=await boot('/demo','?view=store');assert.match(app.innerHTML,/Everyday essentials/);assert.match(app.innerHTML,/Botanical body oil/);assert.match(app.innerHTML,/data-form|data-action="cart"/);assert.match(app.innerHTML,/data-policy="returns"/);
 });
 test('every legal route renders the matching document and real operator contact',async()=>{
- for(const [slug,title] of [['terms','Platform terms'],['privacy','Privacy notice'],['refunds','Cancellation & refunds'],['acceptable-use','Acceptable use policy'],['cookies','Cookie notice']]){const {app}=await boot('/legal/'+slug);assert.ok(app.innerHTML.includes(title));assert.match(app.innerHTML,/icreatesolutions.ja@gmail.com/);}
+ for(const [slug,title] of [['terms','Platform terms'],['privacy','Privacy notice'],['refunds','ICSS Plaza rental cancellation and refunds'],['shopping','Shopping with independent vendors'],['vendor-agreement','Independent vendor agreement'],['vendor-reports','Vendor reporting and investigations'],['acceptable-use','Acceptable use policy'],['cookies','Cookie notice']]){const {app}=await boot('/legal/'+slug);assert.ok(app.innerHTML.includes(title));assert.match(app.innerHTML,/icreatesolutions.ja@gmail.com/);}
+});
+
+test('report page provides a private case form and store context',async()=>{
+ const {app}=await boot('/report','?store=sample-shop&order=abc123');
+ assert.match(app.innerHTML,/data-form="vendor-report"/);
+ assert.match(app.innerHTML,/data-form="report-lookup"/);
+ assert.match(app.innerHTML,/value="sample-shop"/);
+ assert.match(app.innerHTML,/value="abc123"/);
+ assert.match(app.innerHTML,/Private access key/);
 });

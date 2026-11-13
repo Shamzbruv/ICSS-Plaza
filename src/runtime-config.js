@@ -41,6 +41,9 @@ export function resolveEncryptionKey({ encryptionKey, dataDir, db, env = process
     ...db.prepare('SELECT config FROM gateways').all().map(row => row.config),
     ...db.prepare("SELECT json_extract(data, '$.paymentConfig') AS config FROM orders WHERE json_extract(data, '$.paymentConfig') IS NOT NULL").all().map(row => row.config)
   ];
+  const hasTrust = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vendor_reports'").get();
+  const sample = hasTrust && db.prepare('SELECT payload FROM vendor_reports LIMIT 1').get();
+  if(sample) encrypted.push(sample.payload);
   if (key && !validKey(key)) throw new Error('ENCRYPTION_KEY must contain exactly 64 hexadecimal characters.');
   if (!key) {
     try { key = readFileSync(keyPath, 'utf8').trim(); }

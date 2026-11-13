@@ -94,6 +94,14 @@ Railway builds this project using `Dockerfile` and `railway.json`. The default i
 
 A single persistent volume stores the SQLite database, uploaded media, audit records and automatically generated encryption key. Without this volume, container replacement loses both the database and its generated key. If an existing deployment used an explicit ENCRYPTION_KEY, retain that original value: removing or changing it can make existing records unreadable. See [Railway’s provided variables](https://docs.railway.com/variables/reference) for RAILWAY_PUBLIC_DOMAIN. Use SQLite’s backup API or a consistent volume snapshot, not a blind live copy of only the main WAL database file. Schedule off-service encrypted backups and test restore. Do not commit production data or credentials.
 
+## Vendor reports and store enforcement
+
+- The platform refund policy covers ICSS Plaza rentals and direct charges only. Independent vendors handle sales, deliveries, returns, refunds and warranties, subject to applicable consumer rights.
+- Shoppers can file a report at `/report` or from a storefront/receipt. They receive a private case key once and use it to track the case, send updates or request a review. No account or automated case email is needed. The dashboard does not send email alerts; operators should check the queue regularly.
+- `/operator` shows open, closed and urgent cases. Keep notes internal, redact the summary before sharing it with the vendor, and record the reason for restrictions. A vendor responds from **Vendor reports** in its dashboard. Case restrictions are independent of billing or rental status.
+- Case descriptions, contact addresses, messages and evidence are encrypted with the existing application key. Evidence is limited to two private images. Closed cases are purged after one year unless on hold or supporting an active restriction. Protect the database and key backups.
+- New orders record the seller identity and vendor policies shown at checkout. Existing orders and payment verification remain accessible to authorised users during investigation.
+
 ## Business operation and limits
 
 - **Rental billing is manual.** The owner agrees on pricing/billing and the operator activates the rental. No unapproved prices, recurring debits, invoices or provider charges are invented.

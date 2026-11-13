@@ -11,7 +11,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/runtime-config.js && node --check src/server.js && node --check src/payments.js && node --check public/app.js && node --check src/database.js && node --check src/postgres-cutover.js && node --check scripts/import-sqlite.mjs",
+    "check": "node --check src/runtime-config.js && node --check src/server.js && node --check src/payments.js && node --check public/app.js && node --check src/database.js && node --check src/postgres-cutover.js && node --check scripts/import-sqlite.mjs && node --check src/vendor-trust.js && node --check public/trust-ui.js && node --check public/legal.js",
     "brand:build": "node scripts/build-brand-assets.mjs",
     "db:import": "node scripts/import-sqlite.mjs"
   },
