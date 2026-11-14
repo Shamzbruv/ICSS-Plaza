@@ -1,7 +1,7 @@
 # Developer console
 
 Open `/developer` and sign in with the configured Plaza operator account.
-Existing operator routes still work. If you have not bootstrapped the operator
+The designated Plaza developer signs in through the pinned Supabase Auth identity and is mapped to a local operator session. Other existing operator routes still work. If you have not bootstrapped the operator
 yet, set `OPERATOR_EMAIL` and `OPERATOR_PASSWORD` as private Railway variables,
 deploy, and remove the bootstrap password after the first login. Do not reuse a
 merchant email as the operator email. Access is enforced at the API.

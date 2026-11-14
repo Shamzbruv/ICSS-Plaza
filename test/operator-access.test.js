@@ -50,3 +50,40 @@ test('developer provisioning reserves the email and vendor support grants are bo
  await database.run('UPDATE plaza_developers SET enabled=0 WHERE user_id=?',op.user.id);
  assert.equal((await req('/api/operator/overview','GET',null,op)).status,403);
 });
+
+test('the pinned developer uses durable Auth and signs in after a fresh local database',async()=>{
+ const origin='https://plaza.example',email='shamzbiz1@gmail.com',password='a-dev-test-password';
+ const userId='c55ca9ba-77f8-4011-b5a1-1dd42db5ce05';
+ const config={url:'https://auth.example/auth/v1',anon:'test-public-key',userId};
+ let accepted=password;
+ let wrongId=false;
+ const fetcher=async(url,opts)=>{
+  assert.equal(opts.headers.apikey,config.anon);
+  if(url.endsWith('/logout?scope=local'))return new Response(null,{status:204});
+  if(url.endsWith('/user')){
+   assert.match(opts.headers.Authorization,/^Bearer /);
+   accepted=JSON.parse(opts.body).password;return new Response('{}');
+  }
+  const b=JSON.parse(opts.body);
+  assert.equal(b.email,email);
+  return b.password===accepted?new Response(JSON.stringify({access_token:'token',user:{email,id:wrongId?'wrong-identity':userId}})):new Response('{}',{status:400});
+ };
+ for(let attempt=0;attempt<2;attempt++){
+  const dir=mkdtempSync(join(tmpdir(),'plaza-durable-dev-'));
+  const {server}=await createApp({dataDir:dir,databaseURL:'',baseURL:origin,developerAuthConfig:config,developerAuthFetcher:fetcher});
+  try{
+   await new Promise(r=>server.listen(0,'127.0.0.1',r));
+   const base='http://127.0.0.1:'+server.address().port;
+   const make=(path,data={},extra={})=>fetch(base+path,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...extra},body:JSON.stringify(data)});
+   if(attempt===0){
+    wrongId=true;assert.equal((await make('/api/login',{email,password})).status,403);wrongId=false;
+   }
+   const r=await make('/api/login',{email,password:accepted});
+   assert.equal(r.status,200);
+   const cookie=r.headers.get('set-cookie').split(';')[0],sess=await (await fetch(base+'/api/session',{headers:{Cookie:cookie}})).json();
+   assert.equal(sess.operator,true);
+   if(attempt===0)assert.equal((await make('/api/password',{currentPassword:password,password:'a-changed-test-password'},{Cookie:cookie,'X-CSRF-Token':sess.csrf})).status,200);
+   assert.equal((await make('/api/developer/provision',{invite:'ff'.repeat(32),password})).status,404);
+  }finally{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});}
+ }
+});

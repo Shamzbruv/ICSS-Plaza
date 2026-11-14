@@ -5,6 +5,7 @@ import { createVendorTrust } from './vendor-trust.js';
 import { createMailer } from './mailer.js';
 import { createPlatformBilling } from './platform-billing.js';
 import { createPlatformOps } from './platform-ops.js';
+import { developerAuth } from './developer-auth.js';
 import { operatorAccess, ownerEmail, permitsSupport } from './operator-access.js';
 import { launchTestAccess } from './test-access.js';
 import { policyVersion } from '../public/trust-data.js';
@@ -35,7 +36,7 @@ export async function createApp(options={}) {
    await assertPostgresCutover(database,dataDir);
    key=await postgresKey(database,options.encryptionKey ?? process.env.ENCRYPTION_KEY);
   }else key=resolveEncryptionKey({encryptionKey:options.encryptionKey,dataDir,db:database.raw});
-  if(operatorEmail&&opPassword&&!await one('SELECT id FROM users WHERE email=?',operatorEmail)){
+  if(operatorEmail&&operatorEmail!==ownerEmail&&opPassword&&!await one('SELECT id FROM users WHERE email=?',operatorEmail)){
    await run('INSERT INTO users VALUES(?,?,?,?) ON CONFLICT(email) DO NOTHING',id(),email(operatorEmail),passwordHash(opPassword),Date.now());
   }
  }catch(error){await database.close();throw error;}
@@ -43,6 +44,7 @@ export async function createApp(options={}) {
  const notify=mailer.enqueue;
  const orderMail=(o,t)=>({id:o.id,slug:o.slug||t.slug,reference:o.short_id,store:o.seller?.name||t.settings.name,amount:new Intl.NumberFormat('en-JM',{style:'currency',currency:o.currency}).format(o.total/100)});
  const audit=async (tenant,actor,action)=>(await run('INSERT INTO audit VALUES(?,?,?,?,?)',id(),tenant,actor,action,Date.now()));
+ const durableDeveloper=developerAuth(options.developerAuthConfig,options.developerAuthFetcher);
  const access=operatorAccess({db:database,key,legacyEmail:operatorEmail,audit,provision:options.ownerProvisioning});
  const billing=createPlatformBilling({db:database,env:options.billingEnv,fetcher:options.billingFetcher,origin:baseURL,audit,notify});
  const ops=createPlatformOps({db:database,key,notify,operatorEmail:operatorEmail||ownerEmail,limit,email,audit,testAccess:options.testAccess??launchTestAccess});
@@ -129,10 +131,34 @@ export async function createApp(options={}) {
  (await session(req,res,{id:uid,email:em}));await audit(tid,uid,'signup.vendor-agreement.'+policyVersion);return respond(res,{ok:true},201);
  }
  if(path==='/api/login'&&method==='POST'){
+ if(String(b.email||'').trim().toLowerCase()===ownerEmail){
+  limit(req,'developer-login',12);
+  await durableDeveloper.verify(ownerEmail,text(b.password,128,1));
+  const user=await tx(async()=>{
+   let u=await one('SELECT id,email FROM users WHERE email=?',ownerEmail);
+   if(!u){
+    const uid=durableDeveloper.id.replaceAll('-','');
+    await run('INSERT INTO users VALUES(?,?,?,?)',uid,ownerEmail,passwordHash(randomBytes(32).toString('hex')),Date.now());
+    u={id:uid,email:ownerEmail};
+   }
+   await run('INSERT INTO plaza_developers VALUES(?,?,?) ON CONFLICT(user_id) DO NOTHING',u.id,1,Date.now());
+   if(!await one('SELECT user_id FROM plaza_developers WHERE user_id=? AND enabled=1',u.id))fail('Developer access is disabled.',403);
+   return u;
+  },'signup');
+  await session(req,res,user);return respond(res,{ok:true});
+ }
  limit(req,'login',30);const em=email(b.email),pw=text(b.password,128,1);const user=(await one('SELECT * FROM users WHERE email=?',em));if(!passwordMatches(pw,user?.password||'0000000000000000:'+ '0'.repeat(128)))fail('Email or password is incorrect.',401);const testStore=await one("SELECT trial_end,status FROM tenants WHERE owner=? AND slug LIKE 'plaza-test-%'",user.id);if(testStore&&(testStore.trial_end<=Date.now()||testStore.status!=='trial'))fail('This test account has expired.',403);await session(req,res,user);return respond(res,{ok:true});
  }
  if(path==='/api/logout'&&method==='POST'){if(token)(await run('DELETE FROM sessions WHERE token=?',hash(token)));res.setHeader('Set-Cookie','plaza_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');return respond(res,{ok:true});}
- if(path==='/api/password'&&method==='POST'){requireUser(req);const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwordMatches(text(b.currentPassword,128,1),user.password))fail('Current password is incorrect.',403);await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),user.id);(await run('DELETE FROM sessions WHERE user_id=?',user.id));await session(req,res,user);await notify('password_changed',hash(req.csrf),user.email);return respond(res,{ok:true});}
+ if(path==='/api/password'&&method==='POST'){requireUser(req);
+ if(req.user.email===ownerEmail){
+  limit(req,'developer-password',8);
+  const current=text(b.currentPassword,128,1),password=text(b.password,128,12);
+  await durableDeveloper.changePassword(ownerEmail,current,password);
+  await run('DELETE FROM sessions WHERE user_id=?',req.user.id);await session(req,res,req.user);
+  await notify('password_changed',hash(req.csrf),req.user.email);return respond(res,{ok:true});
+ }
+const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwordMatches(text(b.currentPassword,128,1),user.password))fail('Current password is incorrect.',403);await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),user.id);(await run('DELETE FROM sessions WHERE user_id=?',user.id));await session(req,res,user);await notify('password_changed',hash(req.csrf),user.email);return respond(res,{ok:true});}
  if(path==='/api/reset'&&method==='POST'){limit(req,'reset',20);const resetHash=hash(text(b.token,100,1));await tx(async ()=>{const r=await one('SELECT * FROM resets WHERE token=? AND expires>?',resetHash,Date.now());if(!r)fail('Reset token is invalid or expired.');await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),r.user_id);(await run('DELETE FROM sessions WHERE user_id=?',r.user_id));await run('DELETE FROM resets WHERE user_id=?',r.user_id);const user=await one('SELECT email FROM users WHERE id=?',r.user_id);await notify('password_changed',resetHash,user?.email);},'password-reset');return respond(res,{ok:true});}
  let m;
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)$/))&&method==='GET'){
