@@ -255,3 +255,12 @@ test('vendor growth tools apply at checkout and keep drafts, private data, and u
  assert.equal((await req(tools+'reviews/'+second.id,'PUT',{status:'published'},a)).status,200);
  assert.deepEqual((await req(shop)).data.reviews,[{name:candidate.name,rating:5,comment:candidate.comment}]);
 });
+
+test('storefront subpages serve the storefront app directly without replacing API routes',async()=>{
+ for(const p of ['/templates/wholesale/shop','/templates/wholesale/product/sample-0','/s/example/store','/s/example/about','/s/example/contact','/s/example/bag','/s/example/policies/shipping']){
+  const response=await fetch(base+p);
+  if(p.endsWith('/store'))assert.equal(response.status,404);
+  else{assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/text\/html/);assert.match(await response.text(),/retail\.css/);}
+ }
+ assert.equal((await req('/api/stores/example/shop')).status,404);
+});

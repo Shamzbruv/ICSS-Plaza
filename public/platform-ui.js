@@ -1,4 +1,4 @@
-import {templates} from './store-templates.js?v=studio-1';
+import {templates} from './store-templates.js?v=retail-1';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=x=>x?new Date(x).toLocaleDateString('en-JM',{dateStyle:'medium'}):'—';
 const money=(amount,currency)=>new Intl.NumberFormat('en-JM',{style:'currency',currency}).format(amount/100);

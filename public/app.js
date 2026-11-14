@@ -1,15 +1,16 @@
+import {pathInStore,retailURL} from './retail-route.js?v=retail-1';
 import {featurePanel,featureDialog,featureRequest} from './vendor-features.js?v=growth-1';
 import {workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=growth-1';
 import {demoStore} from './demo-data.js';
-import {renderStorefront,productShowcase} from './storefront.js?v=growth-1';
-import {createStoreStudio,templateChooser,templatePage,studioMediaOptions} from './store-studio.js?v=growth-1';
+import {renderStorefront} from './storefront.js?v=retail-1';
+import {createStoreStudio,templateChooser,templatePage,studioMediaOptions} from './store-studio.js?v=retail-1';
 import {legalPages,policyVersion} from './legal.js?v=plaza-mail-1';
-import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=growth-1';
+import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=retail-1';
 import {publicReportPage,reportReceipt,reportCase,reportQueue,operatorCase} from './trust-ui.js';
 const app=document.querySelector('#app'), modal=document.querySelector('#modal');
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID().replaceAll('-','');
-let session={user:null,tenants:[],csrf:''},catalog={gateways:[]},state=null,tab='overview',demo=false,store=null,search='',category='All',sort='featured';
+let session={user:null,tenants:[],csrf:''},catalog={gateways:[]},state=null,tab='overview',demo=false,store=null,retailRoute={page:'home'};
 const local={get(k,f){try{return JSON.parse(localStorage.getItem(k))??f;}catch{return f;}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{toast('Your browser could not save these changes.');}},remove(k){localStorage.removeItem(k);}};
 let reportAccess=null,reportFilter='open',reportPage=1,devTab='overview',devData=null,devLoad=0,support=null;
 const developerTab=tab=>tab==='stores'?'vendors':consoleTabs.some(t=>t[0]===tab)?tab:null;
@@ -115,16 +116,21 @@ const reportLink=(slug,ref='')=>'/report?store='+encodeURIComponent(slug)+(ref?'
 const cartKey=()=>`icss-cart-${demo?'demo':store.slug}`;
 function cart(){return local.get(cartKey(),[]);}
 function saveCart(lines){local.set(cartKey(),lines);}
-function resolvedCart(){return cart().map(l=>{const p=store.products.find(p=>p.id===l.productId);if(!p)return null;const v=l.variantId?p.variants.find(v=>v.id===l.variantId):p;if(!v)return null;return {...l,product:p,name:p.name+(v!==p?' — '+v.name:''),price:v.price,stock:v.stock};}).filter(Boolean);}
-function renderStore(policy=''){
+function resolvedCart(){return cart().map(l=>{const p=store.products.find(p=>p.id===l.productId);if(!p?.active)return null;const v=l.variantId?p.variants.find(v=>v.id===l.variantId):p;if(!v)return null;return {...l,product:p,name:p.name+(v!==p?' — '+v.name:''),price:v.price,stock:v.stock};}).filter(Boolean);}
+const storeBase=()=>example?'/templates/'+store.slug:demo?'/demo?view=store':'/s/'+store.slug;
+function navigateRetail(page,options={}){
+ history.pushState(null,'',retailURL(storeBase(),page,options));
+ retailRoute={page,...options};renderStore();
+ window.scrollTo(0,0);app.querySelector('.retail-main')?.focus();
+}
+function renderStore(){
  const banner=example?templatePage(store.slug).toolbar:demo?`<div class="banner"><span>Demo storefront · No real payments. Use sample information only.</span><a class="btn sm" href="/demo">← Edit this demo</a></div>`:'';
  const f=store.settings.features,shown=demo&&f?{...store,features:{quiz:f.quiz?.enabled?f.quiz:null,journal:(f.journal||[]).filter(x=>x.published)},reviews:store.orders.map(o=>o.review).filter(r=>r?.status==='published')}:store;
- app.innerHTML=banner+renderStorefront(shown,{trust:!demo&&!example,policy,search,category,sort,bag:example?0:cart().reduce((n,i)=>n+i.quantity,0),basePath:example?'/templates/'+store.slug:demo?'/demo?view=store':undefined});
- document.title=store.settings.name+' | ICSS Plaza';
+ app.innerHTML=banner+renderStorefront(shown,{trust:!demo&&!example,route:retailRoute,preview:example,bag:example?0:resolvedCart().reduce((n,i)=>n+i.quantity,0),cartLines:!example&&retailRoute.page==='bag'?resolvedCart():[],basePath:storeBase()});
+ const item=retailRoute.page==='product'&&store.products.find(p=>p.id===retailRoute.id);
+ document.title=(item?item.name+' | ':retailRoute.page==='shop'?'Shop | ':'')+store.settings.name+' | ICSS Plaza';
 }
 function previewStore(){if(!demo)history.replaceState(null,'',location.pathname+'?tab=appearance&view=preview');studio.open(true);}
-function productDialog(pid){const p=store.products.find(p=>p.id===pid&&p.active);if(!p)return;showModal(`<div class="split">${productShowcase(p)}<div><span class="tag">${esc(p.category)}</span><h2 style="margin-top:15px">${esc(p.name)}</h2><p class="preline">${esc(p.description)}</p><form data-form="add-cart" data-id="${esc(p.id)}">${p.variants.length?select('Choose an option','variantId','',p.variants.map(v=>[v.id,`${v.name} — ${money(v.price,store.settings.currency)} (${v.stock} available)`])):`<p>${money(p.price,store.settings.currency)} · ${p.stock} available</p>`}${example?'<p class="small">Template preview · Checkout is disabled.</p>':field('Quantity','quantity',1,'number')+'<div class="form-error"></div><button class="store-btn" type="submit">Add to bag +</button>'}</form></div></div>`);}
-function cartDialog(){const lines=resolvedCart();showModal(`<h2>Your bag</h2>${lines.map((l,i)=>`<div class="cart-line"><img src="${esc(l.product.image||'/assets/collection.svg')}" alt=""><div class="details"><strong>${esc(l.name)}</strong><p style="margin:5px 0">${money(l.price,store.settings.currency)}</p></div><input aria-label="Quantity for ${esc(l.name)}" type="number" min="1" max="99" value="${l.quantity}" data-cart-quantity="${i}"><button data-action="remove-cart" data-index="${i}" aria-label="Remove ${esc(l.name)}">×</button></div>`).join('')}${lines.length?`<div class="order-total"><strong>Subtotal</strong><strong>${money(lines.reduce((a,l)=>a+l.price*l.quantity,0),store.settings.currency)}</strong></div><p>Delivery and configured taxes are calculated at checkout.</p>${button('Continue to checkout →','checkout')}`:`${illustration('empty-cart')}<p>Your bag is waiting for something good.</p>`}`);}
 function rewardProof(input){
  if(!input)return null;
  try{
@@ -139,13 +145,13 @@ function rewardRequest(data){
  return {discountCode:data.discountCode?.trim()||'',loyaltyReward:!!proof,...(proof?{loyaltyProof:proof}:{})};
 }
 async function applyOrderQuote(form){
- const data=formData(form),request={lines:cart(),delivery:data.delivery,customer:{email:data.email},...rewardRequest(data)};
+ const data=formData(form),request={lines:resolvedCart().map(({productId,variantId,quantity})=>({productId,variantId,quantity})),delivery:data.delivery,customer:{email:data.email},...rewardRequest(data)};
  const quote=await api('/api/stores/'+store.slug+'/quote','POST',request);
  orderQuote={total:quote.total,key:JSON.stringify(request)};
  for(const [key,text] of Object.entries({'shipping-total':money(quote.shipping,store.settings.currency),'checkout-total':money(quote.total,store.settings.currency),'checkout-tax':money(quote.tax,store.settings.currency),'checkout-discount':quote.discount?'−'+money(quote.discount,store.settings.currency):money(0,store.settings.currency)})){const el=form.querySelector('#'+key);if(el)el.textContent=text;}
  return request;
 }
-function checkoutDialog(){orderQuote=null;if(!demo&&store.checkoutBlocked){toast('This store is not accepting new orders right now.');return;}const s=store.settings,lines=resolvedCart();if(!lines.length)return cartDialog();const subtotal=lines.reduce((a,l)=>a+l.price*l.quantity,0);const tax=Math.round(subtotal*s.taxBps/10000);const shipping=s.freeShippingOver&&subtotal>=s.freeShippingOver?0:s.shippingFee;
+function checkoutDialog(){orderQuote=null;if(!demo&&store.checkoutBlocked){toast('This store is not accepting new orders right now.');return;}const s=store.settings,lines=resolvedCart();if(!lines.length){navigateRetail('bag');return;}const subtotal=lines.reduce((a,l)=>a+l.price*l.quantity,0);const tax=Math.round(subtotal*s.taxBps/10000);const shipping=s.freeShippingOver&&subtotal>=s.freeShippingOver?0:s.shippingFee;
  const gs=demo?state.gateways.filter(g=>g.enabled).map(g=>({...g,id:g.provider||g.id,name:catalog.gateways.find(x=>x.id===(g.provider||g.id))?.name||g.name})):store.gateways;
  showModal(`<h2>${demo?'Try a sample checkout':'Checkout'}</h2>${demo?'<div class="note">Use fictional details. No payment will be taken and no real order will be sent.</div>':''}<form data-form="checkout">${field('Full name','name',demo?'Demo Customer':'')}${field('Email','email',demo?'sample@example.com':'','email')}${field('Phone','phone',demo?'0000000000':'')}${select('Delivery method','delivery',s.shippingEnabled?'shipping':'pickup',[[...(s.shippingEnabled?['shipping','Delivery']:[])],[...(s.pickup?['pickup','Pickup']:[])]].filter(x=>x.length))}${area('Delivery address (required for delivery)','address',demo?'Demo address, Jamaica':'')}${select('Payment method','gateway',s.defaultPayment,gs.map(g=>[g.id,g.name+(g.mode==='manual'?' — manual verification':'')]))}
  ${!demo&&(store.features?.discounts||store.features?.loyalty)?`<details><summary>Discount or loyalty reward</summary>${store.features.discounts?field('Discount code','discountCode'):''}${store.features.loyalty?field('Link to a previous fulfilled order','loyaltyLink','','url','Get ${store.features.loyalty.percent}% off after ${store.features.loyalty.orders} fulfilled paid orders. Use the same email as your previous order.'):''}${button('Apply and update total','order-quote','outline sm','type="button"')}</details><div class="order-total"><span>Discount</span><strong id="checkout-discount">${money(0,s.currency)}</strong></div>`:''}<div class="order-total"><span>Subtotal</span><strong>${money(subtotal,s.currency)}</strong></div><div class="order-total"><span>${esc(s.taxLabel)} (${s.taxBps/100}%)</span><strong id="checkout-tax">${money(tax,s.currency)}</strong></div><div class="order-total"><span>Delivery</span><strong id="shipping-total">${money(s.shippingEnabled?shipping:0,s.currency)}</strong></div><div class="order-total"><strong>Total</strong><strong id="checkout-total" data-subtotal="${subtotal+tax}" data-shipping="${shipping}">${money(subtotal+tax+(s.shippingEnabled?shipping:0),s.currency)}</strong></div><p>Seller: ${esc(s.name)}. ${demo?'Sample transaction.':'You are buying from this independent vendor. Contact them about delivery, returns or refunds. Plaza’s rental refund policy does not apply.'}</p><label class="field check"><input type="checkbox" name="acceptTerms" required><span>I accept this seller’s <button class="back-link" type="button" data-action="checkout-policy" data-id="terms">sales terms</button>, <button class="back-link" type="button" data-action="checkout-policy" data-id="shipping">delivery</button> and <button class="back-link" type="button" data-action="checkout-policy" data-id="returns">returns policy</button> and have read the <button class="back-link" type="button" data-action="checkout-policy" data-id="privacy">privacy notice</button>.</span></label><div class="form-error"></div><button class="btn" type="submit">${demo?'Place sample order':'Place order & continue'} →</button></form>`);
@@ -242,17 +248,18 @@ document.addEventListener('submit',async e=>{
  if(kind==='order'){
  const oid=form.dataset.id;if(demo){const o=state.orders.find(o=>o.id===oid);if(data.state==='fulfilled'&&!o.paid&&!data.markPaid)throw Error('Confirm payment before fulfilment.');if(data.markPaid){if(!data.reference)throw Error('Add a sample transaction reference.');o.paid=true;o.transaction_id='demo:'+data.reference;}if(o.state==='cancelled'&&data.state!=='cancelled')throw Error('Cancelled orders cannot be reopened.');if(data.state==='cancelled'&&o.paid)throw Error('Paid orders need refund reconciliation first.');if(data.state==='cancelled'&&o.state!=='cancelled'){for(const l of o.lines){const p=state.products.find(p=>p.id===l.productId);const target=l.variantId?p?.variants.find(v=>v.id===l.variantId):p;if(target)target.stock+=l.quantity;}}o.state=data.state;saveDemo();}else await adminMutation('orders/'+oid,'PATCH',data);modal.close();toast('Order updated.');dashboard();return;
  }
+ if(kind==='retail-search'){navigateRetail('shop',{search:String(data.q||'').trim()});return;}
  if(kind==='add-cart'){
- if(example)return;const p=store.products.find(p=>p.id===form.dataset.id),v=p.variants.length?p.variants.find(v=>v.id===data.variantId):p,qty=Number(data.quantity);if(!v||!Number.isInteger(qty)||qty<1||qty>99)throw Error('Choose a valid quantity and option.');const c=cart(),l=c.find(l=>l.productId===p.id&&l.variantId===(data.variantId||''));if(qty+(l?.quantity||0)>v.stock)throw Error('There is not enough stock for that quantity.');if(l)l.quantity+=qty;else c.push({productId:p.id,variantId:data.variantId||'',quantity:qty});saveCart(c);modal.close();if(location.pathname.startsWith('/s/')||location.search.includes('view=store'))renderStore();toast('Added to your bag.');return;
+ if(example)return;const p=store.products.find(p=>p.id===form.dataset.id),v=p?.variants.length?p.variants.find(v=>v.id===data.variantId):p,qty=Number(data.quantity);if(!p?.active||!v||!Number.isInteger(qty)||qty<1||qty>99)throw Error('Choose a valid quantity and option.');const c=cart(),l=c.find(l=>l.productId===p.id&&l.variantId===(data.variantId||''));if(qty+(l?.quantity||0)>v.stock)throw Error('There is not enough stock for that quantity.');if(l)l.quantity+=qty;else c.push({productId:p.id,variantId:data.variantId||'',quantity:qty});saveCart(c);renderStore();app.querySelector('.retail-bag')?.focus({preventScroll:true});toast('Added to your bag.');return;
  }
  if(kind==='checkout'){
  if(!data.acceptTerms)throw Error('Please accept the seller policies.');if(!data.name||!data.email||!data.phone||(data.delivery==='shipping'&&!data.address))throw Error('Complete your contact and delivery details.');
  const lines=resolvedCart();let result;
  if(demo){const subtotal=lines.reduce((a,l)=>a+l.price*l.quantity,0),s=store.settings;const shipping=data.delivery==='pickup'||(s.freeShippingOver&&subtotal>=s.freeShippingOver)?0:s.shippingFee,tax=Math.round(subtotal*s.taxBps/10000);for(const l of lines){const p=state.products.find(p=>p.id===l.productId),v=l.variantId?p.variants.find(v=>v.id===l.variantId):p;if(l.quantity>v.stock)throw Error('A sample product has insufficient stock.');}for(const l of lines){const p=state.products.find(p=>p.id===l.productId),v=l.variantId?p.variants.find(v=>v.id===l.variantId):p;v.stock-=l.quantity;}const o={id:uid(),short_id:'DEMO-'+uid().slice(0,6),total:subtotal+tax+shipping,subtotal,tax,shipping,currency:s.currency,customer:{name:data.name,email:data.email,phone:data.phone,address:data.address},lines:lines.map(({product,...l})=>l),gateway:data.gateway,delivery:data.delivery,state:'new',paid:false,created:Date.now()};state.orders.unshift(o);saveDemo();result={order:o};store=state;
  }else{
- const reward=rewardRequest(data),quoteData={lines:cart(),delivery:data.delivery,customer:{email:data.email},...reward};
+ const reward=rewardRequest(data),quoteData={lines:resolvedCart().map(({productId,variantId,quantity})=>({productId,variantId,quantity})),delivery:data.delivery,customer:{email:data.email},...reward};
  if((reward.discountCode||reward.loyaltyReward||orderQuote)&&orderQuote?.key!==JSON.stringify(quoteData)){await applyOrderQuote(form);throw Error('The total is updated. Review it and place your order.');}
- const request={customer:{name:data.name,email:data.email,phone:data.phone,address:data.address},lines:cart(),gateway:data.gateway,delivery:data.delivery,acceptTerms:true,...reward,...(orderQuote?{expectedTotal:orderQuote.total}:{})};
+ const request={customer:{name:data.name,email:data.email,phone:data.phone,address:data.address},lines:resolvedCart().map(({productId,variantId,quantity})=>({productId,variantId,quantity})),gateway:data.gateway,delivery:data.delivery,acceptTerms:true,...reward,...(orderQuote?{expectedTotal:orderQuote.total}:{})};
  const requestKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(request)))),b=>b.toString(16).padStart(2,'0')).join(''),old=local.get('icss-checkout-'+store.slug,null);const pending=old?.requestKey===requestKey?old:{requestKey,idempotency:uid(),orderToken:uid()+uid()};local.set('icss-checkout-'+store.slug,pending);
  try{result=await api('/api/stores/'+store.slug+'/orders','POST',{...request,idempotency:pending.idempotency,orderToken:pending.orderToken});}catch(error){if(error.message==='The order total changed. Review the updated total before placing your order.')await applyOrderQuote(form);throw error;}local.set('icss-order-'+store.slug,{id:result.order.id,token:result.token});local.remove('icss-checkout-'+store.slug);
  }
@@ -318,11 +325,10 @@ document.addEventListener('submit',async e=>{
 function showOrderReceipt(o){showModal(`${o.paid?illustration('payment-success'):''}<h2>${demo?'Sample order placed':'Order received'}</h2><p>Reference: <strong>${esc(o.short_id||o.id)}</strong></p><div class="note ${o.paid?'':'warn'}">${o.paid?'Payment confirmed.':demo?'Demo order saved. View it under Orders in the demo dashboard. No payment was taken.':'Your order is recorded. Payment is pending verification. Keep this order reference.'}</div><p>Total: ${money(o.total,o.currency)}${o.discount?' · Discount '+money(o.discount,o.currency):''}</p>${!demo&&o.paid&&o.state==='fulfilled'?(o.review?'<p>Your review has been submitted.</p>':`<details><summary>Write a verified review</summary><form data-form="submit-review" data-id="${esc(o.id)}">${select('Rating','rating','5',[['5','5 stars'],['4','4 stars'],['3','3 stars'],['2','2 stars'],['1','1 star']])}${field('Display name (optional)','name')}${area('Your review','comment')}<div class="form-error"></div><button class="btn sm" type="submit">Submit review</button></form></details>`):''}${!demo?`<p>Seller: <strong>${esc(o.seller?.name||store.settings.name)}</strong>. ${(o.seller?.email||store.settings.contactEmail)?`<a href="mailto:${esc(o.seller?.email||store.settings.contactEmail)}">Contact seller</a> · `:''}<a href="${esc(reportLink(o.slug||store.slug,o.short_id||''))}">Report this vendor</a></p>`:''}${o.policySnapshot?`<details><summary>Seller policies at the time of order</summary>${[['terms','Sales terms'],['shipping','Delivery'],['returns','Returns and refunds'],['privacy','Privacy notice']].map(([k,label])=>`<h3>${label}</h3><p class="preline">${esc(o.policySnapshot[k])}</p>`).join('')}</details>`:''}${o.payment?.instructions?`<p class="preline">${esc(o.payment.instructions)}</p>`:''}${o.payment?.url?`<a class="btn" href="${esc(o.payment.url)}" rel="noreferrer">Continue to payment provider ↗</a>`:''}${o.paymentError?`<p>${esc(o.paymentError)}</p>`:''}${!demo?(!o.paid&&!o.payment?.url&&o.state!=='cancelled'?button('Retry payment setup','retry-payment','outline sm'):'')+button('Refresh payment status','order-status','outline sm'):`<a class="btn outline" href="/demo?tab=orders">View demo orders →</a>`}`);}
 function publishDialog(){showModal(`<h2>Publish as an independent vendor</h2><p>Your business is responsible for sales, fulfilment, returns and refunds. Your store policies must be accurate.</p><form data-form="publish-vendor"><label class="field check"><input name="vendorAcknowledgement" type="checkbox" required><span>I agree to the <a href="/legal/vendor-agreement" target="_blank" rel="noopener">independent vendor agreement</a> and confirm that my store details and policies are current.</span></label><div class="form-error" role="alert"></div><button class="btn" type="submit">Publish store</button></form>`);}
 document.addEventListener('click',async e=>{
- const el=e.target.closest('[data-action],[data-tab],[data-category],[data-policy]');if(!el)return;
+ const el=e.target.closest('[data-action],[data-tab]');if(!el)return;
  try{
  if(el.dataset.tab){goVendorTab(el.dataset.tab);return;}
- if(el.dataset.category){category=el.dataset.category;renderStore();if(el.dataset.jump)document.getElementById(el.dataset.jump)?.scrollIntoView();return;}
- if(el.dataset.policy){renderStore(el.dataset.policy);window.scrollTo(0,0);return;}
+
  const action=el.dataset.action,pid=el.dataset.id;
  if(action==='shop-feature'){openShopFeature(pid);return;}
  if(action==='quiz-add'){const row=modal.querySelector('.quiz-rule[hidden]');if(row){row.hidden=false;row.querySelector('input')?.focus();}return;}
@@ -377,7 +383,6 @@ document.addEventListener('click',async e=>{
  if(action==='add-product'||action==='edit-product'){editProduct(pid);return;}
  if(action==='add-page'){const list=modal.open?modal.querySelector('#custom-pages'):document.querySelector('#custom-pages');if(list.children.length>=10)throw Error('Add up to 10 pages.');list.insertAdjacentHTML('beforeend',customPageFields());return;}
  if(action==='remove-page'){el.closest('.custom-page').remove();return;}
- if(action==='custom-page'){const p=store.settings.customPages?.[Number(el.dataset.index)];if(p)showModal(`<h2>${esc(p.title)}</h2><p class="preline">${esc(p.content)}</p>`);return;}
  if(action==='add-variant'){modal.querySelector('.variants').insertAdjacentHTML('beforeend',variantRow());return;}
  if(action==='remove-variant'){el.closest('.variant-row').remove();return;}
  if(action==='delete-product'){showModal(`<h2>Delete this product?</h2><p>It will be removed from your catalogue. Existing order records keep their item details.</p>${button('Delete product','confirm-delete-product','danger',`data-id="${esc(pid)}"`)}`);return;}
@@ -398,13 +403,13 @@ document.addEventListener('click',async e=>{
  if(action==='password'){showModal(`<h2>Change your password</h2><form data-form="password">${field('Current password','currentPassword','','password')}${field('New password (at least 12 characters)','password','','password')}${field('Confirm new password','confirm','','password')}<div class="form-error"></div><button class="btn" type="submit">Change password</button></form>`);return;}
  if(action==='cancel-store'||action==='delete-account'){const cancel=action==='cancel-store';showModal(`<h2>${cancel?'Cancel your rental?':'Request account deletion?'}</h2><p>${cancel?'This immediately takes your store offline. Export your records first. Customer orders, refunds and outstanding rental billing must be resolved separately.':'This records a deletion request for the operator to review. It does not immediately erase records that may be subject to legal retention requirements.'}</p><form data-form="request" data-kind="${cancel?'cancellation':'deletion'}">${area('Notes for support','note')}${check('I understand and confirm this request','confirm',false)}<div class="form-error"></div><button class="btn danger" type="submit">${cancel?'Cancel and take store offline':'Record deletion request'}</button></form>`);return;}
  if(action==='order'){orderDialog(pid);return;}
- if(action==='product-detail'){if(modal.open)modal.close();productDialog(pid);return;}
- if(action==='product-photo'){const photo=modal.querySelector('.product-showcase > img');if(photo)photo.src=el.dataset.image;return;}
- if(action==='cart'){if(modal.open)modal.close();if(example)showModal('<h2>Shopping bag</h2><p>Checkout is disabled in this template preview.</p>');else cartDialog();return;}
- if(action==='remove-cart'){const c=cart();c.splice(Number(el.dataset.index),1);saveCart(c);modal.close();cartDialog();return;}
- if(action==='checkout'){modal.close();checkoutDialog();return;}
+
+ if(action==='product-photo'){const photo=el.closest('.product-showcase')?.querySelector(':scope > img');if(photo)photo.src=el.dataset.image;return;}
+
+ if(action==='remove-cart'){const line=resolvedCart()[Number(el.dataset.index)];if(line)saveCart(cart().filter(x=>x.productId!==line.productId||x.variantId!==line.variantId));if(modal.open)modal.close();renderStore();return;}
+ if(action==='checkout'){if(modal.open)modal.close();checkoutDialog();return;}
  if(action==='checkout-policy'){const titles={terms:'Sales terms',shipping:'Delivery policy',returns:'Returns policy',privacy:'Privacy notice'};const form=modal.querySelector('form');let box=modal.querySelector('.checkout-policy-view');if(!box){box=document.createElement('section');box.className='checkout-policy-view note preline';form.prepend(box);}box.innerHTML=`<strong>${titles[pid]}</strong><br>${esc(store.settings[pid])}`;box.scrollIntoView({block:'nearest'});return;}
- if(action==='store-home'){renderStore();return;}
+
  if(action==='retry-payment'){const saved=local.get('icss-order-'+store.slug,null);if(!saved)throw Error('No saved order reference.');const r=await api('/api/orders/'+saved.id+'/payment','POST',{token:saved.token});modal.close();showOrderReceipt(r.order);return;}
  if(action==='order-status'){const saved=local.get('icss-order-'+store.slug,null);if(!saved)throw Error('No saved order reference in this browser.');const r=await api('/api/orders/'+saved.id+'/lookup','POST',{token:saved.token});modal.close();showOrderReceipt(r.order);return;}
  if(action==='open-mail'){const d=await api('/api/operator/mail');showModal(`<h2>ICSS Plaza email</h2><p>Sending: ${d.configured?'Configured':'Needs setup'} · Receiving: ${d.inboundConfigured?'Configured':'Needs setup'}</p><p>${Object.entries(d.counts).map(([k,v])=>esc(k)+': '+esc(v)).join(' · ')||'No outgoing messages recorded.'}</p><h3>Latest replies</h3>${d.messages.map(m=>`<details><summary>${esc(m.subject||'No subject')} · ${esc(m.from)}</summary><p class="small">${esc(new Date(m.created).toLocaleString())}${m.attachments?' · Attachments are available in Resend.':''}</p><p class="preline">${esc(m.text||'No plain text is available. Open this message in Resend.')}</p>${d.configured?`<form data-form="support-email-reply" data-id="${esc(m.id)}" data-request-id="${uid()}"><label class="field">Reply<textarea name="message" required minlength="10" maxlength="5000"></textarea></label><div class="form-error" role="alert"></div><button class="btn outline sm" type="submit">Send branded reply</button></form>`:''}</details>`).join('')||'<p>No incoming messages yet.</p>'}`);return;}
@@ -416,13 +421,12 @@ document.addEventListener('input',e=>{
  if(e.target.matches('[data-vendor-filter]'))updateVendorFilter(e.target.closest('.vendor-panel'));
  if(e.target.id==='developer-store-search'){const query=e.target.value.toLowerCase();for(const row of e.target.closest('.panel').querySelectorAll('tbody tr'))row.hidden=!row.textContent.toLowerCase().includes(query);}
  if(e.target.closest('#mini-editor')){const d=formData(e.target.closest('form')),s=demoStore().settings;document.querySelector('#mini-preview').innerHTML=mini({...s,...d});}
- if(e.target.matches('[data-search]')){const pos=e.target.selectionStart;search=e.target.value;renderStore();const input=document.querySelector('[data-search]');input?.focus();input?.setSelectionRange(pos,pos);}
 });
 document.addEventListener('change',async e=>{
  try{
  if(e.target.matches('[data-vendor-status]')){updateVendorFilter(e.target.closest('.vendor-panel'));return;}
- if(e.target.matches('[data-sort]')){sort=e.target.value;renderStore();}
- if(e.target.matches('[data-cart-quantity]')){const c=cart(),index=Number(e.target.dataset.cartQuantity),qty=Number(e.target.value),line=resolvedCart()[index];if(!Number.isInteger(qty)||qty<1||qty>99||qty>line.stock)throw Error('Choose a whole quantity within available stock.');c[index].quantity=qty;saveCart(c);modal.close();cartDialog();}
+ if(e.target.matches('[data-sort]')){navigateRetail('shop',{...retailRoute,sort:e.target.value,offset:0});}
+ if(e.target.matches('[data-cart-quantity]')){const c=cart(),index=Number(e.target.dataset.cartQuantity),qty=Number(e.target.value),line=resolvedCart()[index];if(!Number.isInteger(qty)||qty<1||qty>99||qty>line.stock)throw Error('Choose a whole quantity within available stock.');const item=c.find(x=>x.productId===line.productId&&x.variantId===line.variantId);if(item)item.quantity=qty;saveCart(c);renderStore();}
  if(e.target.name==='delivery'&&e.target.closest('[data-form=checkout]')&&orderQuote){try{await applyOrderQuote(e.target.closest('form'));}catch(error){toast(error.message);}return;}
  if(e.target.name==='delivery'&&e.target.closest('[data-form=checkout]')){const total=modal.querySelector('#checkout-total');const shipping=e.target.value==='pickup'?0:Number(total.dataset.shipping);modal.querySelector('#shipping-total').textContent=money(shipping,store.settings.currency);total.textContent=money(Number(total.dataset.subtotal)+shipping,store.settings.currency);}
  if(e.target.matches('[data-product-upload]')){
@@ -439,7 +443,7 @@ async function boot(){
  const path=location.pathname.replace(/\/$/,'')||'/';
  if(path==='/'){landing();return;}
  if(path==='/test-access'){session=await api('/api/session');document.title='Plaza test access';app.innerHTML=`<main class="auth">${logo()}<h1>Open your test workspace.</h1><p>Use a private browser window to keep your live account signed in separately.</p><form data-form="claim-test">${field('Choose a password (12 or more characters)','password','','password')}${field('Confirm password','confirm','','password')}<div class="form-error" role="alert"></div><button type="submit" class="btn">Create my test account</button></form></main>`;return;}
- if(path.startsWith('/templates/')){const t=templatePage(path.split('/')[2]);if(!t)throw Error('Template not found.');store=t.store;example=true;renderStore();return;}
+ if(path.startsWith('/templates/')){const t=templatePage(path.split('/')[2]);if(!t)throw Error('Template not found.');store=t.store;example=true;retailRoute=pathInStore(path,location.search);renderStore();return;}
  if(path==='/consultation'){session=await api('/api/session');document.title='Request a consultation | ICSS Plaza';app.innerHTML=nav()+consultationPage()+footer();return;}
  const vendorWorkspace=path.match(/^\/developer\/vendors\/([a-f0-9]{24})$/);
  if(vendorWorkspace){
@@ -460,7 +464,7 @@ async function boot(){
  catalog=await api('/api/catalog');
  if(['/login','/signup','/reset'].includes(path)){session=await api('/api/session');authPage(path.slice(1));return;}
  if(path==='/demo'){
- demo=true;loadDemo();const params=new URLSearchParams(location.search);tab=workspaceTab(params.get('tab'),workspaceMode());if(params.get('view')==='store'){store=state;renderStore();}else dashboard();return;
+ demo=true;loadDemo();const params=new URLSearchParams(location.search);tab=workspaceTab(params.get('tab'),workspaceMode());if(params.get('view')==='store'){store=state;retailRoute=pathInStore(path,location.search);renderStore();}else dashboard();return;
  }
  if(path.startsWith('/s/')){
  session=await api('/api/session');
@@ -470,7 +474,7 @@ async function boot(){
  if(/^[a-f0-9]{24}$/.test(orderId||'')&&/^[a-f0-9]{32,100}$/.test(orderKey||'')){
    try{const r=await api('/api/orders/'+orderId+'/lookup','POST',{token:orderKey});if(r.order.slug!==slug)throw Error('Order not found.');emailedOrder=r.order;local.set('icss-order-'+slug,{id:orderId,token:orderKey});history.replaceState(null,'',location.pathname+location.search);}catch(error){toast(error.message);}
  }
- let d;try{d=await api('/api/stores/'+slug);}catch(e){errorPage(e);app.querySelector('.error-page')?.insertAdjacentHTML('beforeend',`<p><a href="${esc(reportLink(slug))}">Report this vendor</a> · <a href="/legal/shopping">Shopping help</a></p>`);if(saved||emailedOrder){store={slug,settings:{name:slug}};app.querySelector('.error-page')?.insertAdjacentHTML('beforeend',button('View my last order','order-status','outline'));if(emailedOrder)showOrderReceipt(emailedOrder);}return;}store=d;renderStore();if(emailedOrder){showOrderReceipt(emailedOrder);return;}if(saved&&new URLSearchParams(location.search).has('payment')){try{const r=await api('/api/orders/'+saved.id+'/lookup','POST',{token:saved.token});showOrderReceipt(r.order);}catch(error){toast(error.message);}}return;
+ let d;try{d=await api('/api/stores/'+slug);}catch(e){errorPage(e);app.querySelector('.error-page')?.insertAdjacentHTML('beforeend',`<p><a href="${esc(reportLink(slug))}">Report this vendor</a> · <a href="/legal/shopping">Shopping help</a></p>`);if(saved||emailedOrder){store={slug,settings:{name:slug}};app.querySelector('.error-page')?.insertAdjacentHTML('beforeend',button('View my last order','order-status','outline'));if(emailedOrder)showOrderReceipt(emailedOrder);}return;}store=d;retailRoute=pathInStore(path,location.search);renderStore();if(emailedOrder){showOrderReceipt(emailedOrder);return;}if(saved&&new URLSearchParams(location.search).has('payment')){try{const r=await api('/api/orders/'+saved.id+'/lookup','POST',{token:saved.token});showOrderReceipt(r.order);}catch(error){toast(error.message);}}return;
  }
  session=await api('/api/session');if(!session.user){location.href='/login';return;}
  if(path==='/admin'){
@@ -479,4 +483,5 @@ async function boot(){
  }
  throw Error('Page not found.');
 }
+window.addEventListener('popstate',()=>{if(store&&(example||location.pathname.startsWith('/s/')||demo&&new URLSearchParams(location.search).get('view')==='store')){retailRoute=pathInStore(location.pathname,location.search);renderStore();}else if(demo&&store)location.reload();});
 boot().catch(errorPage);

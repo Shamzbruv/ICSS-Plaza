@@ -71,9 +71,9 @@ export function featureRequest(key,id,data,existing={},uuid){
  if(key==='journal'){const row={id:id||uuid(),title:data.title,intro:data.intro,body:data.body,published:data.published};return [...(existing[key]||[]).filter(x=>x.id!==id),row];}
  return {...existing.emails,[id]:{subject:data.subject,message:data.message}};
 }
-export function storefrontExtras(features,reviews){
+export function storefrontExtras(features,reviews,categoryURL){
  const {quiz,journal}=features||{};
- return `${quiz?.rules?.length?`<section class="store-section tone-soft store-feature"><h2>${esc(quiz.question)}</h2><div class="section-category-grid">${quiz.rules.map(r=>`<button type="button" data-category="${esc(r.category)}" data-jump="collection"><strong>${esc(r.label)}</strong><span aria-hidden="true">→</span></button>`).join('')}</div></section>`:''}
+ return `${quiz?.rules?.length?`<section class="store-section tone-soft store-feature"><h2>${esc(quiz.question)}</h2><div class="section-category-grid">${quiz.rules.map(r=>`<a href="${esc(categoryURL?categoryURL(r.category):'#collection')}"><strong>${esc(r.label)}</strong><span aria-hidden="true">→</span></a>`).join('')}</div></section>`:''}
  ${journal?.length?`<section class="store-section store-feature"><h2>From our journal</h2><div class="growth-grid">${journal.map(a=>`<details><summary>${esc(a.title)}</summary>${a.intro?`<p>${esc(a.intro)}</p>`:''}<p class="preline">${esc(a.body)}</p></details>`).join('')}</div></section>`:''}
  ${reviews?.length?`<section class="store-section tone-soft store-feature"><h2>Customer reviews</h2><div class="growth-grid">${reviews.map(r=>`<article><strong>${esc(r.name)} · ${r.rating}/5</strong><p class="small">Verified purchase</p><p class="preline">${esc(r.comment)}</p></article>`).join('')}</div></section>`:''}`;
 }

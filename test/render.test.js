@@ -24,7 +24,7 @@ test('demo dashboard tabs render designer, policies, media, payments and setting
  for(const [tab,expected] of [['appearance','Live storefront preview'],['content','Additional store pages'],['payments','EzeePayments'],['settings','Default payment method'],['products','Botanical body oil'],['media','Your media library']]){await events.get('click')({target:{closest:()=>({dataset:{tab}})}});assert.ok(app.innerHTML.includes(expected),tab+' did not render');}
 });
 test('demo storefront renders products and escaped custom content',async()=>{
- const {app}=await boot('/demo','?view=store');assert.match(app.innerHTML,/Everyday essentials/);assert.match(app.innerHTML,/Botanical body oil/);assert.match(app.innerHTML,/data-form|data-action="cart"/);assert.match(app.innerHTML,/data-policy="returns"/);
+ const {app}=await boot('/demo','?view=store');assert.match(app.innerHTML,/Everyday essentials/);assert.match(app.innerHTML,/Botanical body oil/);assert.match(app.innerHTML,/data-form|data-action="cart"/);assert.match(app.innerHTML,/policies%2Freturns/);
 });
 test('every legal route renders the matching document and real operator contact',async()=>{
  for(const [slug,title] of [['terms','Platform terms'],['privacy','Privacy notice'],['refunds','ICSS Plaza rental cancellation and refunds'],['shopping','Shopping with independent vendors'],['vendor-agreement','Independent vendor agreement'],['vendor-reports','Vendor reporting and investigations'],['acceptable-use','Acceptable use policy'],['cookies','Cookie notice']]){const {app}=await boot('/legal/'+slug);assert.ok(app.innerHTML.includes(title));assert.match(app.innerHTML,/icreatesolutions.ja@gmail.com/);}
@@ -64,7 +64,7 @@ test('signup advertises six starter templates with a full wholesale preview',asy
  const {app}=await boot('/signup');
  assert.equal((app.innerHTML.match(/name="template"/g)||[]).length,6);
  assert.match(app.innerHTML,/template choice is permanent/);
- const example=await boot('/templates/wholesale');assert.match(example.app.innerHTML,/Stock up\. Shop local\./);assert.match(example.app.innerHTML,/Jamaican pantry staples/);assert.match(example.app.innerHTML,/Shop the aisles/);
+ const example=await boot('/templates/wholesale');assert.match(example.app.innerHTML,/Your weekly shop, sorted\./);assert.match(example.app.innerHTML,/Jamaican pantry staples/);assert.match(example.app.innerHTML,/Shop by department/);
 });
 
 test('vendor inventory and customers are real workspaces, with orders and customers omitted in support',async()=>{
@@ -90,4 +90,23 @@ test('developer can open all six template previews and vendor growth modules',as
   const view=await boot('/demo','?tab='+tab);
   assert.ok(view.app.innerHTML.includes(label),tab);
  }
+});
+
+test('wholesale navigation opens separate catalogue, department, product, story and delivery pages',async()=>{
+ const home=(await boot('/templates/wholesale')).app.innerHTML;
+ assert.match(home,/href="\/templates\/wholesale\/shop"/);
+ assert.match(home,/href="\/templates\/wholesale\/about"/);
+ assert.doesNotMatch(home,/href="#(?:collection|our-story)"/);
+ const shop=(await boot('/templates/wholesale/shop','?category=Pantry&sort=price-up')).app.innerHTML;
+ assert.match(shop,/<h1>Pantry<\/h1>/);
+ assert.match(shop,/Wholesale grocery box/);assert.doesNotMatch(shop,/Fresh market basket|Your weekly shop, sorted/);
+ const product=(await boot('/templates/wholesale/product/sample-0')).app.innerHTML;
+ assert.match(product,/<h1>Jamaican pantry staples<\/h1>/);
+ assert.match(product,/Case of 6/);assert.match(product,/Purchases are disabled/);
+ const story=(await boot('/templates/wholesale/about')).app.innerHTML;
+ assert.match(story,/<h1>Good food\. Smart stock-ups\.<\/h1>/);assert.doesNotMatch(story,/data-collection/);
+ const contact=(await boot('/templates/wholesale/contact')).app.innerHTML;assert.match(contact,/Shopping with us/);
+ const policy=(await boot('/templates/wholesale/policies/shipping')).app.innerHTML;assert.match(policy,/<h1>Delivery &amp; pickup<\/h1>/);
+ const live=(await boot('/s/example-store/shop','?category=Pantry',{'/api/stores/example-store':{slug:'example-store',settings:{name:'Example store',currency:'JMD',categories:['Pantry'],sections:[{id:'catalog',type:'catalog'}]},products:[]}})).app.innerHTML;
+ assert.match(live,/<h1>Pantry<\/h1>/);assert.match(live,/No products found/);
 });

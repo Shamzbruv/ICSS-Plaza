@@ -10,7 +10,7 @@ export function passwordMatches(password, encoded) { try { const [salt, key] = e
 export function encrypt(value, key) { if (!/^[a-f0-9]{64}$/i.test(key || '')) fail('Gateway secrets require the platform encryption key to be configured.', 503); const iv = randomBytes(12); const c = createCipheriv('aes-256-gcm', Buffer.from(key, 'hex'), iv); return [iv.toString('hex'), Buffer.concat([c.update(JSON.stringify(value)), c.final()]).toString('hex'), c.getAuthTag().toString('hex')].join(':'); }
 export function decrypt(value, key) { const [iv, data, tag] = value.split(':'); const d = createDecipheriv('aes-256-gcm', Buffer.from(key, 'hex'), Buffer.from(iv, 'hex')); d.setAuthTag(Buffer.from(tag, 'hex')); return JSON.parse(Buffer.concat([d.update(Buffer.from(data, 'hex')), d.final()]).toString()); }
 export function safeURL(value, hosts) { const u = new URL(value); if (u.protocol !== 'https:' || u.username || u.password || (hosts && !hosts.some(h => u.hostname === h || u.hostname.endsWith('.' + h)))) fail('Use an approved HTTPS payment URL.'); return u.toString(); }
-export function imageURL(value) { if (!value) return ''; if (/^\/assets\/[a-z0-9-]+\.svg$/.test(value) || /^\/api\/images\/[a-f0-9]{24}$/.test(value)) return value; fail('Upload an image using the media library.'); }
+export function imageURL(value) { if (!value) return ''; if (/^\/assets\/[a-z0-9-]+\.(?:svg|webp)$/.test(value) || /^\/api\/images\/[a-f0-9]{24}$/.test(value)) return value; fail('Upload an image using the media library.'); }
 export function videoURL(value) {
  if(!value)return '';
  if(typeof value==='string'&&/^\/api\/images\/[a-f0-9]{24}$/.test(value))return value;
@@ -35,7 +35,7 @@ export function storeSections(input){
   const images=s.images??[],items=s.items??[];
   if(!Array.isArray(images)||images.length>8||!Array.isArray(items)||items.length>8)fail('Use up to eight entries per section.');
   const image=imageURL(s.image||''),video=videoURL(s.video||'');
-  return {id:s.id,type:s.type,hidden:s.hidden===true,title:text(s.title||'',180),text:text(s.text||'',3200),image,video,
+  return {id:s.id,type:s.type,hidden:s.hidden===true,...(!['hero','catalog','about'].includes(s.type)&&['home','shop','about','contact'].includes(s.page)?{page:s.page}:{}),title:text(s.title||'',180),text:text(s.text||'',3200),image,video,
    alt:text(s.alt||'',180),images:images.filter(Boolean).map(imageURL),button:text(s.button||'',70),link:sectionLink(s.link),
    align:['left','center','right'].includes(s.align)?s.align:'left',tone:['plain','soft','accent'].includes(s.tone)?s.tone:'plain',
    items:items.map(x=>({title:text(x?.title||'',180),text:text(x?.text||'',1000)}))};

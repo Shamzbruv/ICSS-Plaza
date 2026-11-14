@@ -499,7 +499,7 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(path==='/developer/demo'||path==='/developer/demo/')return redirect(res,'/developer');
  if(path.startsWith('/api/'))fail('Endpoint not found.',404);
  if(method!=='GET'&&method!=='HEAD')fail('Method not allowed.',405);
- const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|templates\/[a-z-]+|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
+ const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|(?:templates\/[a-z-]+|s\/[a-z0-9-]+)(?:\/(?:shop|about|contact|journal|reviews|bag|product\/[a-z0-9-]+|policies\/[a-z-]+|page\/[0-9]+))?)\/?$/.test(path)?'/index.html':path;
  const file=resolve(publicDir,'.'+page);if(!file.startsWith(publicDir+'/')||!existsSync(file))fail('Page not found.',404);
  const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
  const ext=extname(file);

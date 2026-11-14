@@ -1,67 +1,57 @@
-import {renderStorefront,productShowcase,formatMoney,esc} from './storefront.js?v=growth-1';
+import {renderStorefront,sectionPage} from './storefront.js?v=retail-1';
+import {readRetailRoute} from './retail-route.js?v=retail-1';
 
-const root=document.querySelector('#canvas-root'),dialog=document.querySelector('#canvas-dialog');
-const parentWindow=window.parent,origin=location.origin;
-let state=null,category='All',search='',sort='featured',policy='',customPage=null;
+const root=document.querySelector('#canvas-root');
+const parentWindow=window.parent,origin=location.origin,base='/demo?view=store';
+let state=null,route={page:'home'};
 const send=(type,target)=>parentWindow.postMessage({plazaCanvas:true,type,target},origin);
 function paint(){
  if(!state)return;
- root.innerHTML=renderStorefront(state.store,{editor:state.edit,trust:state.trust,policy,customPage,search,category,sort,basePath:'#hero'});
- if(state.edit){
-  root.querySelectorAll('[data-edit]').forEach(x=>x.classList.toggle('canvas-selected',x.dataset.edit===state.selected));
- }
+ root.innerHTML=renderStorefront(state.store,{editor:state.edit,trust:state.trust,route,basePath:base,preview:true});
+ if(state.edit)root.querySelectorAll('[data-edit]').forEach(x=>x.classList.toggle('canvas-selected',x.dataset.edit===state.selected));
 }
+const jump=target=>[...root.querySelectorAll('[data-edit]')].find(x=>x.dataset.edit===target)?.scrollIntoView({block:'center',behavior:'instant'});
+function navigate(next,notify=true){route=next;paint();window.scrollTo(0,0);if(notify)send('page',next);}
 window.addEventListener('message',e=>{
  if(e.origin!==origin||e.source!==parentWindow||!e.data?.plazaStudio)return;
- const {type}=e.data;
+ const {type,target}=e.data;
  if(type==='render'){
-  if(state?.edit!==e.data.edit){policy='';customPage=null;category='All';search='';sort='featured';if(dialog.open)dialog.close();}
-  if(!dialog.open||e.data.edit) {state=e.data;paint();} else state=e.data;
+  if(!state||state.edit!==e.data.edit){route=e.data.route||{page:'home'};}
+  state=e.data;paint();
  }
- if(type==='jump'){
-  const node=[...root.querySelectorAll('[data-edit]')].find(x=>x.dataset.edit===e.data.target);
-  node?.scrollIntoView({block:'center',behavior:'instant'});
+ if(type==='page')navigate(target,false);
+ if(type==='jump'&&state){
+  const section=state.store.settings.sections?.find(x=>x.id===target);
+  if(section&&sectionPage(section)!==route.page)navigate({page:sectionPage(section)});
+  jump(target);
  }
 });
-function showDialog(title,body){
- dialog.innerHTML=`<div class="dialog-head"><h2>${esc(title)}</h2><button class="close" type="button" data-canvas-close aria-label="Close">×</button></div>${body}`;
- if(!dialog.open)dialog.showModal();
-}
 document.addEventListener('click',e=>{
  if(!state||!(e.target instanceof Element))return;
- if(e.target.closest('[data-canvas-close]')){dialog.close();return;}
+ const control=e.target.closest('a,[data-action]');
+ if(control?.matches('a')){
+  const url=new URL(control.href,location.href);
+  if(url.pathname==='/demo'&&url.searchParams.get('view')==='store'&&url.origin===origin){
+   e.preventDefault();const next=readRetailRoute(url.searchParams.get('page')||'',url.search);
+   if(!state.edit||control.closest('.retail-nav,.retail-crumb')||control.classList.contains('retail-department')){navigate(next);return;}
+  }else if(!control.getAttribute('href')?.startsWith('#'))e.preventDefault();
+ }
+ if(control?.dataset.action==='product-photo'){
+  const img=control.closest('.product-showcase')?.querySelector(':scope > img');if(img)img.src=control.dataset.image;return;
+ }
  if(state.edit){
   const target=e.target.closest('[data-edit]');
   if(target&&!e.target.closest('video')){e.preventDefault();send('select',target.dataset.edit);}
   return;
  }
- const control=e.target.closest('a,[data-category],[data-action],[data-policy]');
- if(!control)return;
- if(control.matches('a')){
-  const href=control.getAttribute('href');
-  if(!href?.startsWith('#'))e.preventDefault();
-  return;
- }
- const {category:next,policy:nextPolicy,action,id,index}=control.dataset;
- if(next){category=next;paint();if(control.dataset.jump)document.getElementById(control.dataset.jump)?.scrollIntoView();return;}
- if(nextPolicy){policy=nextPolicy;customPage=null;paint();window.scrollTo(0,0);return;}
- if(action==='store-home'||action==='custom-page'){
-  policy='';customPage=action==='custom-page'?state.store.settings.customPages?.[Number(index)]:null;paint();window.scrollTo(0,0);return;
- }
- if(action==='product-detail'){
-  const p=state.store.products.find(x=>x.id===id);
-  if(p)showDialog(p.name,`<div class="split">${productShowcase(p)}<div><p class="preline">${esc(p.description)}</p><p>${formatMoney(p.variants?.length?Math.min(...p.variants.map(v=>v.price)):p.price,state.store.settings.currency)}</p>${p.variants?.length?`<p>Options: ${p.variants.map(v=>esc(v.name)).join(' · ')}</p>`:''}<p class="small">Preview only. No checkout is available here.</p></div></div>`);
- }
- if(action==='product-photo'){const current=dialog.querySelector('.product-showcase > img');if(current)current.src=control.dataset.image;}
- if(action==='cart')showDialog('Shopping bag','<p>This is a storefront preview. Checkout is turned off here.</p>');
+
 });
 document.addEventListener('keydown',e=>{
- if(e.key==='Escape'&&dialog.open){dialog.close();return;}
  if(state?.edit&&['Enter',' '].includes(e.key)&&e.target.matches('[data-edit]')){e.preventDefault();send('select',e.target.dataset.edit);}
 });
-root.addEventListener('input',e=>{
- if(state?.edit||!e.target.matches('[data-search]'))return;
- const pos=e.target.selectionStart;search=e.target.value;paint();const field=root.querySelector('[data-search]');field?.focus();field?.setSelectionRange(pos,pos);
+root.addEventListener('submit',e=>{
+ e.preventDefault();
+ if(e.target.matches('[data-form=retail-search]'))navigate({page:'shop',search:e.target.elements.q.value.trim()});
 });
-root.addEventListener('change',e=>{if(!state?.edit&&e.target.matches('[data-sort]')){sort=e.target.value;paint();}});
+root.addEventListener('change',e=>{if(e.target.matches('[data-sort]'))navigate({...route,sort:e.target.value,offset:0});});
 send('ready');
