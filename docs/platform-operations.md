@@ -7,8 +7,7 @@ deploy, and remove the bootstrap password after the first login. Do not reuse a
 merchant email as the operator email. Access is enforced at the API.
 
 The console covers storefronts, rental plans and subscriptions, consultations,
-trust and safety, support and email, audit, and system readiness. Public
-`/developer/demo` shows sample data and never writes to the platform. Use
+trust and safety, support and email, audit, and system readiness. Use
 **System & testing → Create test account** for a 14-day merchant login. Test
 accounts cannot publish, pay for rentals, or access any other tenant.
 
@@ -44,3 +43,7 @@ vendor's shop. The plans are monthly. No prices or active plans are seeded.
 Keep credentials in Railway variables. Test with the merchant providers
 before advertising paid plans. The app's release tests use provider fixtures;
 they do not create live charges.
+
+## Vendor support
+
+Open **Vendors → Open vendor workspace**, record the merchant’s request, and edit their storefront, products or media for up to 30 minutes. The support session stays tied to your developer login and that vendor. It does not expose orders, exports, payment credentials, or the vendor’s password. Open and close events and writes are logged under the developer account.

@@ -6,11 +6,12 @@ import { sqliteSchema } from './sqlite-schema.js';
 import { trustSchema } from './trust-schema.js';
 import { mailSchema } from './mail-schema.js';
 import { opsSchema } from './ops-schema.js';
+import { operatorSchema } from './operator-access.js';
 
 export function openSqlite(dataDir) {
   const db = new DatabaseSync(resolve(dataDir, 'plaza.sqlite'));
   db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
-  db.exec(sqliteSchema + trustSchema + mailSchema + opsSchema);
+  db.exec(sqliteSchema + trustSchema + mailSchema + opsSchema + operatorSchema);
   const scope = new AsyncLocalStorage();
   let queue = Promise.resolve();
   const exclusive = task => {

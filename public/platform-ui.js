@@ -5,7 +5,7 @@ const title=s=>String(s||'').replaceAll('_',' ').replace(/^./,x=>x.toUpperCase()
 const act=(label,action,id='')=>`<button class="btn outline sm" data-action="${action}" data-id="${esc(id)}">${esc(label)}</button>`;
 const pill=s=>`<span class="tag">${esc(title(s))}</span>`;
 const empty='—';
-export const consoleTabs=[['overview','Overview','◈'],['stores','Store management','▦'],['subscriptions','Subscriptions','▤'],['consultations','Consultations','◷'],['trust','Trust & safety','◇'],['support','Support & email','✉'],['audit','Audit trail','≡'],['system','System & testing','⚙']];
+export const consoleTabs=[['overview','Overview','◈'],['vendors','Vendors','▦'],['subscriptions','Subscriptions','▤'],['consultations','Consultations','◷'],['trust','Trust & safety','◇'],['support','Support & email','✉'],['audit','Audit trail','≡'],['system','System & testing','⚙']];
 const table=(headers,rows,none='No records yet.')=>rows.length?`<div class="table-scroll"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(cells=>`<tr>${cells.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:`<p>${none}</p>`;
 const card=(label,value)=>`<article class="dev-stat"><span>${esc(label)}</span><strong>${esc(value)}</strong></article>`;
 const panel=(heading,description,body,actions='')=>`<section class="panel"><div class="dev-panel-head"><div><h2>${heading}</h2><p>${description}</p></div>${actions}</div>${body}</section>`;
@@ -33,22 +33,22 @@ export function consultantDialog(r,mailReady) {
  <div class="form-error" role="alert"></div><button class="btn" type="submit">Save consultation</button></form>`;
 }
 
-export function developerShell({tab,logo,demo,content}) {
+export function developerShell({tab,logo,content}) {
  return `<div class="workspace developer-workspace"><aside class="sidebar dev-sidebar">${logo()}<div class="eyebrow">Developer console</div>
  ${consoleTabs.map(([id,label,icon])=>`<button class="${tab===id?'active':''}" data-action="developer-tab" data-id="${id}" ${tab===id?'aria-current="page"':''}><span aria-hidden="true">${icon}</span> ${label}</button>`).join('')}
- <div class="side-bottom"><a href="/">Plaza website ↗</a>${demo?'<a href="/login?next=developer">Operator sign-in ↗</a>':act('Sign out','logout')}</div></aside>
- <main class="main-work"><header class="dev-hero"><div class="eyebrow">ICSS Plaza · ${demo?'Sample workspace':'Operations workspace'}</div><h1>${esc(consoleTabs.find(x=>x[0]===tab)?.[1])}</h1><p>${demo?'Explore the console with sample data. This workspace cannot affect real stores or payments.':'Manage storefronts, rental billing, and customer support from one place.'}</p></header>${content}</main></div>`;
+ <div class="side-bottom"><a href="/">Plaza website ↗</a>${act('Change password','password')} ${act('Sign out','logout')}</div></aside>
+ <main class="main-work"><header class="dev-hero"><div class="eyebrow">ICSS Plaza · Operations workspace</div><h1>${esc(consoleTabs.find(x=>x[0]===tab)?.[1])}</h1><p>Manage storefronts, rental billing, and customer support from one place.</p></header>${content}</main></div>`;
 }
 
-export function developerView(tab,d,{demo=false,trustHTML='' }={}) {
+export function developerView(tab,d,{trustHTML='' }={}) {
  const {overview:o,operator:k,billing:b,consultations:c}=d;
  if(tab==='overview')return `<div class="dev-stats">${card('Stores',o.stores.reduce((n,x)=>n+x.n,0))}${card('Paid rentals',o.paidRentals)}${card('Open consultations',o.consultations)}${card('Open investigations',o.reports)}</div>`+
   panel('Rental receipts · last 30 days','Platform rental collections are separate from vendor sales.',o.revenue.length?`<div class="dev-stats">${o.revenue.map(x=>card(x.currency,money(x.n,x.currency))).join('')}</div>`:'<p>No rental payments recorded.</p>')+
   panel('Storefront order activity','Platform-wide order counts by status.',table(['Status','Orders'],o.orders.map(x=>[pill(x.state),esc(x.n)])));
- if(tab==='stores')return panel('Merchant stores','Review store rental status, inspect order and catalogue counts, or issue a one-time reset.',
+ if(tab==='vendors')return panel('Vendor workspaces','Find a vendor and open their storefront editor when they request help. You can also review rentals and issue password resets.',
   `<label class="field">Find a store<input id="developer-store-search" placeholder="Search by store, email or status"></label>`+
   table(['Store','Owner','Rental status','Trial ends','Actions'],k.tenants.map(t=>[`<strong>${esc(t.settings.name)}</strong><p class="small">/s/${esc(t.slug)}</p>`,esc(t.email),pill(t.status),fmt(t.trial_end),
-  act('Details','tenant-detail',t.id)+act('Manage','rental',t.id)+act('Reset access','issue-reset',t.id)])));
+  act('Open vendor workspace','vendor-support',t.id)+act('Details','tenant-detail',t.id)+act('Rental','rental',t.id)+act('Reset access','issue-reset',t.id)])));
  if(tab==='subscriptions')return panel('Platform rental plans','Create a monthly plan in JMD or USD. Link a matching USD PayPal plan to offer automatic renewal.',table(['Plan','Monthly price','PayPal plan','Status','Actions'],b.plans.map(p=>[esc(p.name),esc(money(p.amount,p.currency)),esc(p.paypal_plan||empty),pill(p.enabled?'available':'retired'),act(p.enabled?'Retire':'Reopen','plan-toggle',p.id)])),act('New plan','new-plan'))+
   panel('Subscription and renewal ledger','Fygaro collects individual monthly payments. PayPal subscriptions renew automatically after approval.',
   table(['Store','Plan','Provider','Status','Paid through','Actions'],b.rentals.map(r=>[esc(r.slug),esc(r.plan_name),esc(title(r.provider)),pill(r.status),fmt(r.paid_until),r.provider==='paypal'&&r.provider_id&&!['cancelled','expired'].includes(r.status)?act('Cancel renewal','operator-cancel-rental',r.id):empty])))+
@@ -58,10 +58,10 @@ export function developerView(tab,d,{demo=false,trustHTML='' }={}) {
  if(tab==='trust')return trustHTML;
  if(tab==='support')return panel('Support and email','Review service requests and use the private Resend inbox.',
   table(['Store','Request','Notes','Date'],k.requests.map(r=>[esc(r.slug),esc(title(r.kind)),esc(r.note||empty),fmt(r.created)])),act('Open email inbox','open-mail'));
- if(tab==='audit')return panel('Recent audit events','Track privileged actions and changes across the platform.',table(['Time','Store ID','Action'],k.audit.map(a=>[esc(new Date(a.created).toLocaleString('en-JM')),esc(a.tenant_id||empty),esc(a.action)])));
+ if(tab==='audit')return panel('Recent audit events','Track privileged actions and changes across the platform.',table(['Time','Store ID','Action'],k.audit.map(a=>[esc(new Date(a.created).toLocaleString('en-JM')),esc(a.tenant_id||empty),esc(a.action)+(a.reason?`<p class="small preline">${esc(a.reason)}</p>`:'')])));
  return panel('Service connections','Check provider configuration before enabling paid plans.',
   table(['Service','Status'],[['Database',pill(o.database)],['Email sending',pill(o.configured?'configured':'needs setup')],['Inbound support',pill(o.inboundConfigured?'configured':'needs setup')],['Fygaro rentals',pill(o.billing.fygaro?'configured':'needs setup')],['PayPal subscriptions',pill(o.billing.paypal?o.paypalMode:'needs setup')]]))+
-  panel('Test workspace','Generate a separate merchant login for 14 days. Test stores cannot publish or enter live billing.',demo?'<p>Use the public storefront demo to test the merchant experience.</p>':'<p>Copy the password when it appears; it is shown only once.</p>',demo?'<a class="btn outline sm" href="/demo">Open merchant demo</a>':act('Create test account','create-test-account'));
+  panel('Test workspace','Generate a separate merchant login for 14 days. Test stores cannot publish or enter live billing.','<p>Copy the password when it appears; it is shown only once.</p>',act('Create test account','create-test-account'));
 }
 
 export function billingPanel(data) {
@@ -74,10 +74,3 @@ export function billingPanel(data) {
   panel('Your billing activity','Paid access follows verified provider payments, not the checkout return page.',table(['Plan','Provider','Status','Paid through',''],data.rentals.map(r=>[esc(r.plan_name),esc(title(r.provider)),pill(r.status),fmt(r.paid_until),
   r.provider==='paypal'&&r.provider_id&&!['cancelled','expired'].includes(r.status)?act('Cancel automatic renewal','cancel-paypal',r.id):empty])));
 }
-
-export const samplePlatform = {
- overview:{stores:[{status:'active',n:18},{status:'trial',n:7}],orders:[{state:'new',n:24},{state:'fulfilled',n:86}],paidRentals:12,consultations:3,reports:2,revenue:[{currency:'JMD',n:9600000}],database:'sample',configured:true,inboundConfigured:false,billing:{fygaro:true,paypal:true},paypalMode:'sandbox'},
- operator:{tenants:[{id:'sample',slug:'island-studio',settings:{name:'Island Studio'},email:'sample@example.invalid',status:'active',trial_end:Date.now()+86400000}],requests:[{slug:'island-studio',kind:'support',created:Date.now()}],audit:[{created:Date.now(),tenant_id:'sample',action:'rental.payment.fygaro'}]},
- billing:{plans:[{id:'sample',name:'Sample monthly rental',amount:800000,currency:'JMD',enabled:1}],rentals:[{slug:'island-studio',plan_name:'Sample monthly rental',provider:'fygaro',status:'active',paid_until:Date.now()+2592000000}],events:[{kind:'payment',provider:'fygaro',created:Date.now()}]},
- consultations:{requests:[{id:'sample',business:'Island Studio',name:'Sample merchant',topic:'migration',status:'new',created:Date.now()}]}
-};

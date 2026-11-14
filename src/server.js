@@ -5,6 +5,7 @@ import { createVendorTrust } from './vendor-trust.js';
 import { createMailer } from './mailer.js';
 import { createPlatformBilling } from './platform-billing.js';
 import { createPlatformOps } from './platform-ops.js';
+import { operatorAccess, ownerProvisioning, permitsSupport } from './operator-access.js';
 import { launchTestAccess } from './test-access.js';
 import { policyVersion } from '../public/trust-data.js';
 import { mkdirSync, readFileSync, existsSync } from 'node:fs';
@@ -42,8 +43,9 @@ export async function createApp(options={}) {
  const notify=mailer.enqueue;
  const orderMail=(o,t)=>({id:o.id,slug:o.slug||t.slug,reference:o.short_id,store:o.seller?.name||t.settings.name,amount:new Intl.NumberFormat('en-JM',{style:'currency',currency:o.currency}).format(o.total/100)});
  const audit=async (tenant,actor,action)=>(await run('INSERT INTO audit VALUES(?,?,?,?,?)',id(),tenant,actor,action,Date.now()));
+ const access=operatorAccess({db:database,key,legacyEmail:operatorEmail,audit,provision:options.ownerProvisioning});
  const billing=createPlatformBilling({db:database,env:options.billingEnv,fetcher:options.billingFetcher,origin:baseURL,audit,notify});
- const ops=createPlatformOps({db:database,key,notify,operatorEmail,limit,email,audit,testAccess:options.testAccess??launchTestAccess});
+ const ops=createPlatformOps({db:database,key,notify,operatorEmail:operatorEmail||ownerProvisioning.email,limit,email,audit,testAccess:options.testAccess??launchTestAccess});
  const available=billing.available;
  const unpack=t=>t?{...t,settings:JSON.parse(t.settings)}:null;
  const getTenant=async slug=>unpack((await one('SELECT * FROM tenants WHERE slug=?',slug)));
@@ -53,7 +55,7 @@ export async function createApp(options={}) {
  async function activeGateways(t){return (await all('SELECT * FROM gateways WHERE tenant_id=? AND enabled=1',t.id)).filter(g=>gateways.find(x=>x.id===g.provider)?.currencies.includes(t.settings.currency));}
  function owner(req,t){if(!req.user || !t || t.owner!==req.user.id)fail('Store not found or access denied.',404);return t;}
  function requireUser(req){if(!req.user)fail('Please sign in.',401);}
- function requireOperator(req){requireUser(req);if(req.user.email!==operatorEmail || !operatorEmail)fail('Operator access required.',403);}
+ function requireOperator(req){requireUser(req);if(!req.operator)fail('Operator access required.',403);}
  async function getConfig(tid,provider){const row=(await one('SELECT * FROM gateways WHERE tenant_id=? AND provider=?',tid,provider));if(!row)fail('Payment method is unavailable.');return {...row,value:decrypt(row.config,key)};}
  const readOrder=row=>row?{...JSON.parse(row.data),id:row.id,tenant_id:row.tenant_id,short_id:row.short_id,state:row.state,paid:!!row.paid,created:row.created,transaction_id:row.transaction_id}:null;
  async function orderAccess(oid,token){const row=(await one('SELECT * FROM orders WHERE id=?',oid));if(!row||!token||!same(row.token_hash,hash(token)))fail('Order not found.',404);return readOrder(row);}
@@ -61,7 +63,7 @@ export async function createApp(options={}) {
  async function release(o){const data=JSON.parse(o.data);for(const l of data.lines){const p=(await one('SELECT * FROM products WHERE id=? AND tenant_id=?',l.productId,o.tenant_id));if(!p)continue;const d=JSON.parse(p.data);if(l.variantId){const v=d.variants.find(x=>x.id===l.variantId);if(v)v.stock+=l.quantity;}else d.stock+=l.quantity;await run('UPDATE products SET data=? WHERE id=?',JSON.stringify(d),p.id);}}
  const paymentLocks=new Set();
  const rate=new Map();function limit(req,bucket,max){const ip=process.env.TRUST_PROXY==='1'?String(req.headers['x-forwarded-for']||req.socket.remoteAddress).split(',')[0]:req.socket.remoteAddress;const k=bucket+':'+ip;const now=Date.now();let r=rate.get(k);if(!r||r.until<now)r={count:0,until:now+900000};if(++r.count>max)fail('Too many requests. Try again in 15 minutes.',429);rate.set(k,r);}
- const trust=createVendorTrust({db:database,key,limit,email,requireOperator,requireUser,audit,notify,operatorEmail});
+ const trust=createVendorTrust({db:database,key,limit,email,requireOperator,requireUser,audit,notify,operatorEmail:operatorEmail||ownerProvisioning.email});
  let lastPurge=0;
  const timer=setInterval(async ()=>{for(const [k,v]of rate)if(v.until<Date.now())rate.delete(k);try{await run('DELETE FROM sessions WHERE expires<?',Date.now());await run('DELETE FROM resets WHERE expires<?',Date.now());if(Date.now()-lastPurge>=86400000){await trust.purge();await mailer.purge();await ops.purge();lastPurge=Date.now();}}catch(error){console.error('Scheduled cleanup failed:',error.code||error.name);}},60000);timer.unref();
  const mailTimer=setInterval(()=>void mailer.drain().catch(error=>console.error('Email queue failed:',error.code||error.name)),4000);mailTimer.unref();
@@ -78,13 +80,22 @@ export async function createApp(options={}) {
  const u=new URL(req.url,baseURL || 'http://localhost'),path=u.pathname,method=req.method;
  const token=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('plaza_session='))?.slice(14);
  const s=token?(await one("SELECT s.*,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>? AND NOT EXISTS (SELECT 1 FROM tenants t WHERE t.owner=u.id AND t.slug LIKE 'plaza-test-%' AND (t.trial_end<=? OR t.status<>'trial'))",hash(token),Date.now(),Date.now())):null;
- if(s){req.user={id:s.user_id,email:s.email};req.csrf=s.csrf;}
+ if(s){req.user={id:s.user_id,email:s.email};req.csrf=s.csrf;req.sessionHash=hash(token);req.operator=await access.isOperator(req.user);}
  const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path)||path==='/api/webhooks/resend'||/^\/api\/billing\/hooks\/(fygaro|paypal)$/.test(path);
  if(!['GET','HEAD'].includes(method)){
  if(!webhook){const origin=resolveRequestOrigin({baseURL,host:req.headers.host,production});if(!origin||req.headers.origin!==origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
  req.body=await body(req);
  }
  const b=req.body||{};
+ if(path==='/api/developer/provision'&&method==='POST'){limit(req,'developer-provision',8);return respond(res,await access.provision(b),201);}
+ const vendorAccess=path.match(/^\/api\/operator\/vendors\/([a-f0-9]{24})\/access$/);
+ if(vendorAccess&&['POST','DELETE'].includes(method)){
+  requireOperator(req);
+  const t=await getTenantId(vendorAccess[1]);if(!t)fail('Vendor not found.',404);
+  if(method==='POST'){limit(req,'vendor-support-start',25);return respond(res,await access.begin(req,t,b.reason),201);}
+  await access.end(req,t.id);return respond(res,{ok:true});
+ }
+
  if(path==='/api/test-access'&&method==='POST'){if(req.user)fail('Open the invitation in a private window first.',409);const u=await ops.claimTest(req,b);await session(req,res,u);return respond(res,{email:u.email,expiresAt:u.expiresAt},201);}
  if(path==='/api/consultations'&&method==='POST')return respond(res,await ops.consult(req,b),201);
  if(path==='/api/billing/hooks/fygaro'&&method==='POST'){await billing.fygaroHook(b,req.raw,req.headers);return respond(res,{received:true});}
@@ -109,10 +120,10 @@ export async function createApp(options={}) {
  if(/^\/api\/(reports|vendor\/reports|operator\/reports)(?:\/|$)/.test(path))return await trust.handle({req,res,u,path,method,b,respond});
  if(path==='/api/health')return respond(res,{ok:!!(await one('SELECT 1 AS ok'))});
  if(path==='/api/catalog'&&method==='GET')return respond(res,{gateways,operator:'iCreate Solutions & Services',trialDays:14});
- if(path==='/api/session'&&method==='GET'){const tenants=req.user?(await all('SELECT * FROM tenants WHERE owner=?',req.user.id)).map(unpack):[];return respond(res,{user:req.user||null,csrf:req.csrf||'',tenants,operator:!!operatorEmail&&req.user?.email===operatorEmail});}
+ if(path==='/api/session'&&method==='GET'){const tenants=req.user?(await all('SELECT * FROM tenants WHERE owner=?',req.user.id)).map(unpack):[];return respond(res,{user:req.user||null,csrf:req.csrf||'',tenants,operator:!!req.operator});}
  if(path==='/api/signup'&&method==='POST'){
  limit(req,'signup',10);const em=email(b.email),pw=passwordHash(b.password),slug=text(b.slug,48,3).toLowerCase();if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||['admin','demo','api','www','plaza','support','developer','consultation'].includes(slug)||slug.startsWith('plaza-test-'))fail('Choose a store address using letters, numbers and hyphens.');
- if(operatorEmail&&em===operatorEmail)fail('This email is reserved. Contact Plaza support.',409);
+ if(access.reserved(em))fail('This email is reserved. Contact Plaza support.',409);
  if(b.acceptTerms!==true)fail('Accept the platform terms and independent vendor agreement to continue.');
  const uid=id(),tid=id(),storeName=text(b.name,180,1);(await tx(async ()=>{if((await one('SELECT id FROM users WHERE email=?',em)))fail('This email is already registered. Sign in instead.',409);if((await one('SELECT id FROM tenants WHERE slug=?',slug)))fail('That store address is taken.',409);await run('INSERT INTO users VALUES(?,?,?,?)',uid,em,pw,Date.now());(await run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)',tid,slug,uid,'trial',Date.now()+14*86400000,JSON.stringify({...defaults(),name:storeName,contactEmail:em}),Date.now()));await notify('welcome',uid,em,{store:storeName});},'signup'));
  (await session(req,res,{id:uid,email:em}));await audit(tid,uid,'signup.vendor-agreement.'+policyVersion);return respond(res,{ok:true},201);
@@ -191,20 +202,39 @@ export async function createApp(options={}) {
  fail('Unknown payment action.',404);
  }
  if((m=path.match(/^\/api\/admin\/([a-f0-9]+)(?:\/(.*))?$/))){
- requireUser(req);const t=owner(req,(await getTenantId(m[1]))),action=m[2]||'';
+ requireUser(req);const idForStore=m[1],action=m[2]||'',target=await getTenantId(idForStore);
+ let support=null;
+ if(req.headers['x-plaza-support']){
+  support=await access.active(req,idForStore);
+  if(!support||!target)fail('Vendor support session ended or is unavailable.',403);
+  if(!permitsSupport(action,method))fail('This action is outside storefront support access.',403);
+ }
+ const t=support?target:owner(req,target);
+ if(action==='support-state'&&method==='GET'&&support)return respond(res,support);
  if(action==='billing'&&method==='GET')return respond(res,await billing.list(t.id));
  if(action==='billing/checkout'&&method==='POST'){limit(req,'rental-checkout',20);return respond(res,await billing.checkout(t,b));}
  const cancelBilling=action.match(/^billing\/([a-f0-9]{24})\/cancel$/);
  if(cancelBilling&&method==='POST'){limit(req,'rental-cancel',10);await billing.cancel(t,cancelBilling[1],req.user.id);return respond(res,{ok:true});}
+ if(!action&&method==='GET'&&support)return respond(res,{
+ tenant:t,products:(await all('SELECT id,data FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(r=>({id:r.id,...JSON.parse(r.data)})),
+ images:await all('SELECT id,name,mime FROM images WHERE tenant_id=? ORDER BY created DESC',t.id),
+ gateways:(await all('SELECT provider,enabled FROM gateways WHERE tenant_id=?',t.id)).map(g=>({provider:g.provider,enabled:!!g.enabled})),
+ metrics:{orderCount:0,confirmedRevenue:0},orders:[],requests:[],support
+ });
  if(!action&&method==='GET')return respond(res,{tenant:t,metrics:{orderCount:(await one('SELECT COUNT(*) AS n FROM orders WHERE tenant_id=?',t.id)).n,confirmedRevenue:(await one(revenueSQL(database),t.id)).n},products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})),orders:(await all('SELECT * FROM orders WHERE tenant_id=? ORDER BY created DESC LIMIT 500',t.id)).map(r=>{const o=readOrder(r);delete o.paymentConfig;return o;}),gateways:(await all('SELECT * FROM gateways WHERE tenant_id=?',t.id)).map(g=>({provider:g.provider,enabled:!!g.enabled,environment:decrypt(g.config,key).environment,configured:true})),images:(await all('SELECT id,name,mime FROM images WHERE tenant_id=? ORDER BY created DESC',t.id)),requests:(await all('SELECT * FROM requests WHERE tenant_id=? ORDER BY created DESC',t.id))});
  if(method==='PUT'&&action==='settings'||method==='POST'&&['products','images','requests'].includes(action)||['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action)||method==='PUT'&&/^gateways\/[a-z]+$/.test(action)){
  const result=await tx(async ()=>{
- const t=owner(req,await getTenantId(m[1]));let a;
+ const current=await getTenantId(idForStore),t=support?current:owner(req,current);let a;
+ if(support){
+  if(!await access.active(req,t.id))fail('Vendor support session ended.',403);
+  if(action==='settings'&&['published','currency','defaultPayment','contactEmail'].some(k=>Object.hasOwn(b,k)&&b[k]!==t.settings[k]))fail('Only the vendor can change publishing, currency, default payment, or the contact email.',403);
+  await audit(t.id,req.user.id,'vendor-support.'+method.toLowerCase()+'.'+action.replaceAll('/','.')+'.'+support.id);
+ }
  if(action==='settings'&&method==='PUT'){
  const next=settings(b,t.settings);if(next.published&&!t.settings.published&&b.vendorAcknowledgement!==true)fail('Confirm the independent vendor agreement before publishing.');for(const k of ['heroImage','logo'])if(next[k].startsWith('/api/images/')&&!(await one('SELECT id FROM images WHERE id=? AND tenant_id=?',next[k].split('/').pop(),t.id)))fail('Image does not belong to this store.');
  if(next.currency!==t.settings.currency&&(await one('SELECT id FROM orders WHERE tenant_id=? LIMIT 1',t.id)))fail('Currency cannot change after the first order. Contact support.');
  const methods=(await activeGateways({...t,settings:next}));if(next.defaultPayment&&!methods.some(g=>g.provider===next.defaultPayment))fail('Default payment must be enabled and support this currency.');
- if(next.published){if(!await available(t))fail('Your store rental is inactive.',403);if(!next.contactEmail||!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('Add seller contact details, business address, delivery, return, privacy and terms policies before publishing.');if(!next.defaultPayment)fail('Set up and select a default payment method before publishing.');if(!(await all('SELECT data FROM products WHERE tenant_id=?',t.id)).some(p=>JSON.parse(p.data).active))fail('Add an active product before publishing.');}
+ if(next.published){if(!support&&!await available(t))fail('Your store rental is inactive.',403);if(!next.contactEmail||!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('Add seller contact details, business address, delivery, return, privacy and terms policies before publishing.');if(!next.defaultPayment)fail('Set up and select a default payment method before publishing.');if(!(await all('SELECT data FROM products WHERE tenant_id=?',t.id)).some(p=>JSON.parse(p.data).active))fail('Add an active product before publishing.');}
  (await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify(next),t.id));await audit(t.id,req.user.id,'settings.updated');if(next.published&&!t.settings.published)await audit(t.id,req.user.id,'publish.vendor-agreement.'+policyVersion);return {payload:{settings:next}};
  }
  if(action==='products'&&method==='POST'){
@@ -244,7 +274,7 @@ export async function createApp(options={}) {
  }
  fail('Admin action not found.',404);
  }
- if(path==='/api/operator'&&method==='GET'){requireOperator(req);return respond(res,{tenants:(await all('SELECT t.*,u.email FROM tenants t JOIN users u ON u.id=t.owner ORDER BY t.created DESC')).map(unpack),requests:(await all('SELECT r.*,t.slug FROM requests r JOIN tenants t ON t.id=r.tenant_id ORDER BY r.created DESC')),audit:(await all('SELECT * FROM audit ORDER BY created DESC LIMIT 200'))});}
+ if(path==='/api/operator'&&method==='GET'){requireOperator(req);return respond(res,{tenants:(await all('SELECT t.*,u.email FROM tenants t JOIN users u ON u.id=t.owner ORDER BY t.created DESC')).map(unpack),requests:(await all('SELECT r.*,t.slug FROM requests r JOIN tenants t ON t.id=r.tenant_id ORDER BY r.created DESC')),audit:await access.auditWithReason(await all('SELECT * FROM audit ORDER BY created DESC LIMIT 200'))});}
  if((m=path.match(/^\/api\/operator\/([a-f0-9]+)$/))&&method==='PATCH'){
  requireOperator(req);await tx(async ()=>{const t=await getTenantId(m[1]);if(!t)fail('Store not found.',404);if(!['active','trial','suspended','cancelled'].includes(b.status))fail('Invalid rental status.');const trialEnd=b.status==='trial'?Date.now()+integer(b.trialDays||14,90,1)*86400000:t.trial_end;await run('UPDATE tenants SET status=?,trial_end=? WHERE id=?',b.status,trialEnd,t.id);await audit(t.id,req.user.id,'operator.status.'+b.status);if(t.status!==b.status){const owner=await one('SELECT email FROM users WHERE id=?',t.owner);await notify('rental',id(),owner?.email,{store:t.settings.name,status:b.status});}},'tenant:'+m[1]);return respond(res,{ok:true});
  }
@@ -252,11 +282,12 @@ export async function createApp(options={}) {
  requireOperator(req);const t=(await getTenantId(m[1]));if(!t)fail('Store not found.',404);const token=randomBytes(32).toString('hex'),expires=Date.now()+3600000;const queued=await tx(async()=>{await run('DELETE FROM resets WHERE user_id=?',t.owner);await run('INSERT INTO resets VALUES(?,?,?)',hash(token),t.owner,expires);await audit(t.id,req.user.id,'operator.password-reset-issued');const owner=await one('SELECT email FROM users WHERE id=?',t.owner);return notify('reset',hash(token),owner?.email,{token},{expires});},'password-reset');return respond(res,{queued,...(queued?{}:{token}),expiresInMinutes:60});
  }
  if((m=path.match(/^\/api\/images\/([a-f0-9]+)$/))&&method==='GET'){
- const row=(await one('SELECT * FROM images WHERE id=?',m[1]));const t=row?(await getTenantId(row.tenant_id)):null;if(!row||(!((await available(t)&&t.settings.published&&(await storefrontRestriction(t.id))!=='suspend')||req.user?.id===t.owner)))fail('Image not found.',404);res.writeHead(200,{'Content-Type':row.mime,'Cache-Control':'private, max-age=300'});return res.end(Buffer.from(row.bytes));
+ const row=(await one('SELECT * FROM images WHERE id=?',m[1]));const t=row?(await getTenantId(row.tenant_id)):null;if(!row||(!((await available(t)&&t.settings.published&&(await storefrontRestriction(t.id))!=='suspend')||req.user?.id===t.owner||await access.permitsImage(req,t.id))))fail('Image not found.',404);res.writeHead(200,{'Content-Type':row.mime,'Cache-Control':'private, no-store'});return res.end(Buffer.from(row.bytes));
  }
+ if(path==='/developer/demo'||path==='/developer/demo/')return redirect(res,'/developer');
  if(path.startsWith('/api/'))fail('Endpoint not found.',404);
  if(method!=='GET'&&method!=='HEAD')fail('Method not allowed.',405);
- const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/demo)?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
+ const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
  const file=resolve(publicDir,'.'+page);if(!file.startsWith(publicDir+'/')||!existsSync(file))fail('Page not found.',404);
  const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
  res.writeHead(200,{'Content-Type':types[extname(file)]||'application/octet-stream','Cache-Control':page==='/index.html'?'no-cache':'public, max-age=3600'});if(method==='HEAD')return res.end();

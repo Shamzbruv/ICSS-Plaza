@@ -28,6 +28,7 @@ test('SQLite import preserves encrypted data and images; wrong key rolls back al
     await pool.query(await readFile(new URL('../supabase/migrations/20261113163850_vendor_trust.sql', import.meta.url), 'utf8'));
     await pool.query(await readFile(new URL('../supabase/migrations/20261113165453_resend_mail.sql', import.meta.url), 'utf8'));
     await pool.query(await readFile(new URL('../supabase/migrations/20261113234248_platform_ops.sql', import.meta.url), 'utf8'));
+    await pool.query(await readFile(new URL('../supabase/migrations/20261114161612_vendor_support.sql', import.meta.url), 'utf8'));
     const sqlite = openSqlite(dir);
     try {
       await sqlite.run('INSERT INTO users VALUES(?,?,?,?)','owner','owner@example.com','hashed',Date.now());

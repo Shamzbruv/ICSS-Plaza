@@ -49,6 +49,10 @@ export function resolveEncryptionKey({ encryptionKey, dataDir, db, env = process
     const sample=db.prepare("SELECT payload FROM "+table+" WHERE payload<>'' LIMIT 1").get();
     if(sample)encrypted.push(sample.payload);
   }
+  if(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='plaza_vendor_access'").get()){
+    const row=db.prepare('SELECT purpose FROM plaza_vendor_access LIMIT 1').get();
+    if(row)encrypted.push(row.purpose);
+  }
   if (key && !validKey(key)) throw new Error('ENCRYPTION_KEY must contain exactly 64 hexadecimal characters.');
   if (!key) {
     try { key = readFileSync(keyPath, 'utf8').trim(); }
