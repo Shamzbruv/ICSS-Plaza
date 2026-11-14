@@ -9,7 +9,7 @@ import {createMailer,verifyResend} from '../src/mailer.js';
 import {openSqlite,openPostgres,createPostgresPool} from '../src/database.js';
 import {authTemplates} from '../src/email-design.js';
 
-const key='ab'.repeat(32), origin='https://plaza.example.com';
+const key='12'.repeat(32), origin='https://plaza.example.com';
 const env={RESEND_API_KEY:'sending-test',RESEND_FROM:'ICSS Plaza <plaza@example.com>',RESEND_REPLY_TO:'support@example.com',RESEND_INBOX_ADDRESS:'support@example.com',RESEND_INBOUND_API_KEY:'receiving-test',RESEND_WEBHOOK_SECRET:'whsec_'+Buffer.from('fixture-webhook-signature-secret').toString('base64')};
 const ok=data=>new Response(JSON.stringify(data),{status:200});
 

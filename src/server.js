@@ -5,7 +5,7 @@ import { createVendorTrust } from './vendor-trust.js';
 import { createMailer } from './mailer.js';
 import { createPlatformBilling } from './platform-billing.js';
 import { createPlatformOps } from './platform-ops.js';
-import { operatorAccess, ownerProvisioning, permitsSupport } from './operator-access.js';
+import { operatorAccess, ownerEmail, permitsSupport } from './operator-access.js';
 import { launchTestAccess } from './test-access.js';
 import { policyVersion } from '../public/trust-data.js';
 import { mkdirSync, readFileSync, existsSync } from 'node:fs';
@@ -45,7 +45,7 @@ export async function createApp(options={}) {
  const audit=async (tenant,actor,action)=>(await run('INSERT INTO audit VALUES(?,?,?,?,?)',id(),tenant,actor,action,Date.now()));
  const access=operatorAccess({db:database,key,legacyEmail:operatorEmail,audit,provision:options.ownerProvisioning});
  const billing=createPlatformBilling({db:database,env:options.billingEnv,fetcher:options.billingFetcher,origin:baseURL,audit,notify});
- const ops=createPlatformOps({db:database,key,notify,operatorEmail:operatorEmail||ownerProvisioning.email,limit,email,audit,testAccess:options.testAccess??launchTestAccess});
+ const ops=createPlatformOps({db:database,key,notify,operatorEmail:operatorEmail||ownerEmail,limit,email,audit,testAccess:options.testAccess??launchTestAccess});
  const available=billing.available;
  const unpack=t=>t?{...t,settings:JSON.parse(t.settings)}:null;
  const getTenant=async slug=>unpack((await one('SELECT * FROM tenants WHERE slug=?',slug)));
@@ -63,7 +63,7 @@ export async function createApp(options={}) {
  async function release(o){const data=JSON.parse(o.data);for(const l of data.lines){const p=(await one('SELECT * FROM products WHERE id=? AND tenant_id=?',l.productId,o.tenant_id));if(!p)continue;const d=JSON.parse(p.data);if(l.variantId){const v=d.variants.find(x=>x.id===l.variantId);if(v)v.stock+=l.quantity;}else d.stock+=l.quantity;await run('UPDATE products SET data=? WHERE id=?',JSON.stringify(d),p.id);}}
  const paymentLocks=new Set();
  const rate=new Map();function limit(req,bucket,max){const ip=process.env.TRUST_PROXY==='1'?String(req.headers['x-forwarded-for']||req.socket.remoteAddress).split(',')[0]:req.socket.remoteAddress;const k=bucket+':'+ip;const now=Date.now();let r=rate.get(k);if(!r||r.until<now)r={count:0,until:now+900000};if(++r.count>max)fail('Too many requests. Try again in 15 minutes.',429);rate.set(k,r);}
- const trust=createVendorTrust({db:database,key,limit,email,requireOperator,requireUser,audit,notify,operatorEmail:operatorEmail||ownerProvisioning.email});
+ const trust=createVendorTrust({db:database,key,limit,email,requireOperator,requireUser,audit,notify,operatorEmail:operatorEmail||ownerEmail});
  let lastPurge=0;
  const timer=setInterval(async ()=>{for(const [k,v]of rate)if(v.until<Date.now())rate.delete(k);try{await run('DELETE FROM sessions WHERE expires<?',Date.now());await run('DELETE FROM resets WHERE expires<?',Date.now());if(Date.now()-lastPurge>=86400000){await trust.purge();await mailer.purge();await ops.purge();lastPurge=Date.now();}}catch(error){console.error('Scheduled cleanup failed:',error.code||error.name);}},60000);timer.unref();
  const mailTimer=setInterval(()=>void mailer.drain().catch(error=>console.error('Email queue failed:',error.code||error.name)),4000);mailTimer.unref();
@@ -87,7 +87,7 @@ export async function createApp(options={}) {
  req.body=await body(req);
  }
  const b=req.body||{};
- if(path==='/api/developer/provision'&&method==='POST'){limit(req,'developer-provision',8);return respond(res,await access.provision(b),201);}
+ if(options.ownerProvisioning&&path==='/api/developer/provision'&&method==='POST'){limit(req,'developer-provision',8);return respond(res,await access.provision(b),201);}
  const vendorAccess=path.match(/^\/api\/operator\/vendors\/([a-f0-9]{24})\/access$/);
  if(vendorAccess&&['POST','DELETE'].includes(method)){
   requireOperator(req);

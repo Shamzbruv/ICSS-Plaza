@@ -1,11 +1,7 @@
 import {decrypt,encrypt,fail,id,passwordHash,passwordMatches,text} from './model.js';
 import {createHash,timingSafeEqual} from 'node:crypto';
 
-export const ownerProvisioning=Object.freeze({
- email:'shamzbiz1@gmail.com',
- verifier:'6c540c0b42bba176c5af02fd823a3639319cf3c26b69b4bffb99b124927bb28e',
- expiresAt:Date.parse('2026-11-18T00:00:00Z')
-});
+export const ownerEmail='shamzbiz1@gmail.com';
 const supportWindow=30*60*1000;
 
 export const operatorSchema=`
@@ -19,10 +15,10 @@ CREATE TABLE IF NOT EXISTS plaza_vendor_access (
 CREATE INDEX IF NOT EXISTS plaza_vendor_access_actor ON plaza_vendor_access(operator_id,tenant_id,created);
 `;
 
-export function operatorAccess({db,key,legacyEmail,audit,provision=ownerProvisioning}){
+export function operatorAccess({db,key,legacyEmail,audit,provision=null}){
  const {one,run,tx}=db;
  return {
-  reserved(email){return email===legacyEmail||email===provision?.email;},
+  reserved(email){return email===legacyEmail||email===ownerEmail||email===provision?.email;},
   async isOperator(user){return !!user&&(user.email===legacyEmail&&!!legacyEmail||!!await one('SELECT user_id FROM plaza_developers WHERE user_id=? AND enabled=1',user.id));},
   async provision(input){
    const token=input.invite;
