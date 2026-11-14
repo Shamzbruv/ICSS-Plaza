@@ -62,6 +62,16 @@ test('developer provisioning reserves the email and vendor support grants are bo
  assert.equal(qaGrant.status,201);
  const qaAdmin='/api/admin/'+qa.id,sample=(await req(qaAdmin,'GET',null,op,qaGrant.data.id)).data;
  assert.ok(sample.products.some(p=>p.sku==='QA-TOTE'));
+ const tote=sample.products.find(p=>p.sku==='QA-TOTE'),stockPath=qaAdmin+'/products/'+tote.id+'/stock',changeStock={quantities:[{id:'base',previous:tote.stock,stock:9}]};
+ assert.equal((await req(stockPath,'PATCH',changeStock,a)).status,404);
+ const adjusted=await req(stockPath,'PATCH',changeStock,op,qaGrant.data.id);
+ assert.equal(adjusted.status,200);assert.equal(adjusted.data.stock,9);assert.equal(adjusted.data.name,tote.name);
+ assert.equal((await req(stockPath,'PATCH',changeStock,op,qaGrant.data.id)).status,409);
+ assert.deepEqual(sample.orders,[]);
+ const variants=await req(qaAdmin+'/products','POST',{name:'Training shoes',price:700,stock:0,variants:[{id:'small',name:'Small',price:700,stock:4},{id:'large',name:'Large',price:700,stock:2}]},op,qaGrant.data.id);
+ assert.equal(variants.status,201);
+ const optionUpdate=await req(qaAdmin+'/products/'+variants.data.id+'/stock','PATCH',{quantities:[{id:'large',previous:2,stock:10},{id:'small',previous:4,stock:0}]},op,qaGrant.data.id);
+ assert.equal(optionUpdate.status,200);assert.deepEqual(optionUpdate.data.variants.map(v=>v.stock),[0,10]);
  assert.equal((await req(qaLogin,'POST',{},a)).status,403);
  const credentials=(await req(qaLogin,'POST',{},op)).data;
  assert.equal(credentials.email,qa.email);

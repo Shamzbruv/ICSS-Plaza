@@ -66,3 +66,18 @@ test('signup advertises six starter templates with a full wholesale preview',asy
  assert.match(app.innerHTML,/template choice is permanent/);
  const example=await boot('/templates/wholesale');assert.match(example.app.innerHTML,/Stock up\. Shop local\./);assert.match(example.app.innerHTML,/Jamaican pantry staples/);assert.match(example.app.innerHTML,/Shop the aisles/);
 });
+
+test('vendor inventory and customers are real workspaces, with orders and customers omitted in support',async()=>{
+ const {app,events}=await boot('/demo','?tab=inventory');
+ assert.match(app.innerHTML,/aria-label="Store management"/);
+ assert.match(app.innerHTML,/data-tab="inventory" aria-current="page"/);
+ assert.match(app.innerHTML,/Stock levels/);
+ assert.match(app.innerHTML,/Adjust stock/);
+ const click=key=>events.get('click')({target:{closest:()=>({dataset:{tab:key}})}});
+ await click('customers');assert.match(app.innerHTML,/Customer directory/);
+ await click('policies');assert.match(app.innerHTML,/Save policies/);
+ const {workspaceSidebar}=await import('../public/vendor-workspace.js');
+ const support=workspaceSidebar({tab:'inventory',state:{settings:{name:'Support test'}},support:true});
+ assert.match(support,/End support session/);
+ assert.doesNotMatch(support,/data-tab="(?:customers|orders|billing|payments)"/);
+});

@@ -271,7 +271,7 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  metrics:{orderCount:0,confirmedRevenue:0},orders:[],requests:[],support
  });
  if(!action&&method==='GET')return respond(res,{tenant:t,metrics:{orderCount:(await one('SELECT COUNT(*) AS n FROM orders WHERE tenant_id=?',t.id)).n,confirmedRevenue:(await one(revenueSQL(database),t.id)).n},products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})),orders:(await all('SELECT * FROM orders WHERE tenant_id=? ORDER BY created DESC LIMIT 500',t.id)).map(r=>{const o=readOrder(r);delete o.paymentConfig;return o;}),gateways:(await all('SELECT * FROM gateways WHERE tenant_id=?',t.id)).map(g=>({provider:g.provider,enabled:!!g.enabled,environment:decrypt(g.config,key).environment,configured:true})),images:(await all('SELECT id,name,mime FROM images WHERE tenant_id=? ORDER BY created DESC',t.id)),requests:(await all('SELECT * FROM requests WHERE tenant_id=? ORDER BY created DESC',t.id))});
- if(method==='PUT'&&['settings','design'].includes(action)||method==='POST'&&['products','images','requests','sample-products'].includes(action)||['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action)||method==='PUT'&&/^gateways\/[a-z]+$/.test(action)){
+ if(method==='PUT'&&['settings','design'].includes(action)||method==='POST'&&['products','images','requests','sample-products'].includes(action)||['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||method==='PATCH'&&/^products\/[a-f0-9]+\/stock$/.test(action)||method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action)||method==='PUT'&&/^gateways\/[a-z]+$/.test(action)){
  const result=await tx(async ()=>{
  const current=await getTenantId(idForStore),t=support?current:owner(req,current);let a;
  if(support){
@@ -318,6 +318,22 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  }
  if(action==='products'&&method==='POST'){
  if((await one('SELECT COUNT(*) AS n FROM products WHERE tenant_id=?',t.id)).n>=1000)fail('Product limit reached. Contact support.');const p=product(b);await checkProductImages(p,t.id);const pid=id();await run('INSERT INTO products VALUES(?,?,?,?)',pid,t.id,JSON.stringify(p),Date.now());return {payload:{id:pid,...p},status:201};
+ }
+ if(method==='PATCH'&&(a=action.match(/^products\/([a-f0-9]+)\/stock$/))){
+  const row=await one('SELECT data FROM products WHERE id=? AND tenant_id=?',a[1],t.id);
+  if(!row)fail('Product not found.',404);
+  const p=JSON.parse(row.data),quantities=b.quantities;
+  const targets=p.variants?.length?p.variants:[p],keys=p.variants?.length?p.variants.map(v=>v.id):['base'];
+  if(!Array.isArray(quantities)||quantities.length!==keys.length||new Set(quantities.map(x=>x?.id)).size!==keys.length)fail('Product options have changed. Reopen the stock editor.',409);
+  const entries=new Map(quantities.map(x=>[x?.id,x]));
+  for(let i=0;i<keys.length;i++){
+   const value=entries.get(keys[i]);
+   if(!value||value.previous!==targets[i].stock)fail('Stock changed while you were editing. Reopen the stock editor and try again.',409);
+   targets[i].stock=integer(value.stock,1000000);
+  }
+  await run('UPDATE products SET data=? WHERE id=? AND tenant_id=?',JSON.stringify(p),a[1],t.id);
+  if(!support)await audit(t.id,req.user.id,'inventory.updated.'+a[1]);
+  return {payload:{id:a[1],...p}};
  }
  if((a=action.match(/^products\/([a-f0-9]+)$/))){const row=(await one('SELECT * FROM products WHERE id=? AND tenant_id=?',a[1],t.id));if(!row)fail('Product not found.',404);if(method==='PUT'){const p=product(b);await checkProductImages(p,t.id);(await run('UPDATE products SET data=? WHERE id=? AND tenant_id=?',JSON.stringify(p),a[1],t.id));return {payload:{id:a[1],...p}};}if(method==='DELETE'){await run('DELETE FROM products WHERE id=? AND tenant_id=?',a[1],t.id);return {payload:{ok:true}};}}
  if(action==='images'&&method==='POST'){

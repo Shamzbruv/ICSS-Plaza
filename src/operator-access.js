@@ -81,5 +81,6 @@ export function permitsSupport(action,method) {
    method==='PUT'&&['settings','design'].includes(action)||
    method==='POST'&&['products','images','sample-products'].includes(action)||
    ['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||
+   method==='PATCH'&&/^products\/[a-f0-9]+\/stock$/.test(action)||
    method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action);
 }
