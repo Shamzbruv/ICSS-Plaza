@@ -45,10 +45,10 @@ export function developerView(tab,d,{trustHTML='' }={}) {
  if(tab==='overview')return `<div class="dev-stats">${card('Stores',o.stores.reduce((n,x)=>n+x.n,0))}${card('Paid rentals',o.paidRentals)}${card('Open consultations',o.consultations)}${card('Open investigations',o.reports)}</div>`+
   panel('Rental receipts · last 30 days','Platform rental collections are separate from vendor sales.',o.revenue.length?`<div class="dev-stats">${o.revenue.map(x=>card(x.currency,money(x.n,x.currency))).join('')}</div>`:'<p>No rental payments recorded.</p>')+
   panel('Storefront order activity','Platform-wide order counts by status.',table(['Status','Orders'],o.orders.map(x=>[pill(x.state),esc(x.n)])));
- if(tab==='vendors')return panel('Vendor workspaces','Find a vendor and open their storefront editor when they request help. You can also review rentals and issue password resets.',
+ if(tab==='vendors')return panel('Vendor workspaces','Open a vendor’s editor when they ask for help. Use Plaza Test Vendor to practice with sample products. It cannot publish or take live payments. Generating a test login replaces the previous one.',
   `<label class="field">Find a store<input id="developer-store-search" placeholder="Search by store, email or status"></label>`+
-  table(['Store','Owner','Rental status','Trial ends','Actions'],k.tenants.map(t=>[`<strong>${esc(t.settings.name)}</strong><p class="small">/s/${esc(t.slug)}</p>`,esc(t.email),pill(t.status),fmt(t.trial_end),
-  act('Open vendor workspace','vendor-support',t.id)+act('Details','tenant-detail',t.id)+act('Rental','rental',t.id)+act('Reset access','issue-reset',t.id)])));
+  table(['Store','Owner','Access','Actions'],d.vendors.map(t=>[`<strong>${esc(t.settings.name)}</strong> ${t.test?pill('Test vendor'):''}<p class="small">/s/${esc(t.slug)}</p>`,esc(t.email),t.test?pill('Private test store'):pill(t.status)+(t.status==='trial'?`<p class="small">Ends ${fmt(t.trial_end)}</p>`:''),
+  act('Open vendor workspace','vendor-support',t.id)+act('Details','tenant-detail',t.id)+(t.primaryTest?act('Generate test login','generate-test-login',t.id):t.test?'':act('Rental','rental',t.id)+act('Reset access','issue-reset',t.id))])));
  if(tab==='subscriptions')return panel('Platform rental plans','Create a monthly plan in JMD or USD. Link a matching USD PayPal plan to offer automatic renewal.',table(['Plan','Monthly price','PayPal plan','Status','Actions'],b.plans.map(p=>[esc(p.name),esc(money(p.amount,p.currency)),esc(p.paypal_plan||empty),pill(p.enabled?'available':'retired'),act(p.enabled?'Retire':'Reopen','plan-toggle',p.id)])),act('New plan','new-plan'))+
   panel('Subscription and renewal ledger','Fygaro collects individual monthly payments. PayPal subscriptions renew automatically after approval.',
   table(['Store','Plan','Provider','Status','Paid through','Actions'],b.rentals.map(r=>[esc(r.slug),esc(r.plan_name),esc(title(r.provider)),pill(r.status),fmt(r.paid_until),r.provider==='paypal'&&r.provider_id&&!['cancelled','expired'].includes(r.status)?act('Cancel renewal','operator-cancel-rental',r.id):empty])))+
@@ -61,7 +61,7 @@ export function developerView(tab,d,{trustHTML='' }={}) {
  if(tab==='audit')return panel('Recent audit events','Track privileged actions and changes across the platform.',table(['Time','Store ID','Action'],k.audit.map(a=>[esc(new Date(a.created).toLocaleString('en-JM')),esc(a.tenant_id||empty),esc(a.action)+(a.reason?`<p class="small preline">${esc(a.reason)}</p>`:'')])));
  return panel('Service connections','Check provider configuration before enabling paid plans.',
   table(['Service','Status'],[['Database',pill(o.database)],['Email sending',pill(o.configured?'configured':'needs setup')],['Inbound support',pill(o.inboundConfigured?'configured':'needs setup')],['Fygaro rentals',pill(o.billing.fygaro?'configured':'needs setup')],['PayPal subscriptions',pill(o.billing.paypal?o.paypalMode:'needs setup')]]))+
-  panel('Test workspace','Generate a separate merchant login for 14 days. Test stores cannot publish or enter live billing.','<p>Copy the password when it appears; it is shown only once.</p>',act('Create test account','create-test-account'));
+  panel('Test workspace','The Vendors tab includes a ready-to-edit test store.','<p>Open its workspace or generate a temporary merchant login under Plaza Test Vendor.</p>',act('Open Vendors','developer-tab','vendors')+' '+act('Create an additional test account','create-test-account'));
 }
 
 export function billingPanel(data) {

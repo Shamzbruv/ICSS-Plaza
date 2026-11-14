@@ -4,16 +4,17 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {gateways} from '../src/payments.js';
 // A template smoke test, not a substitute for browser layout/accessibility QA.
 // It boots the actual front-end module with its platform boundary mocked.
-async function boot(path,search=''){
+async function boot(path,search='',routes={}){
  const app={innerHTML:''},modal={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;}},toast={style:{},textContent:''},events=new Map(),storage=new Map();
  globalThis.document={title:'',querySelector:s=>s==='#app'?app:s==='#modal'?modal:toast,addEventListener:(k,v)=>events.set(k,v)};
  globalThis.location={pathname:path,search,origin:'https://plaza.example'};
  globalThis.localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
  globalThis.window={scrollTo(){}};
- globalThis.fetch=async url=>new Response(JSON.stringify(url==='/api/catalog'?{gateways}:url==='/api/session'?{user:null,tenants:[],csrf:''}:{}),{status:200});
+ globalThis.history={replaceState(){}};const requests=[];
+ globalThis.fetch=async (url,opts)=>{requests.push([url,opts?.method]);return new Response(JSON.stringify(routes[url]??(url==='/api/catalog'?{gateways}:url==='/api/session'?{user:null,tenants:[],csrf:''}:{})),{status:200});};
  await import('../public/app.js?test='+Math.random());
  for(let i=0;i<20&&!app.innerHTML;i++)await delay(1);
- return {app,events,modal,storage};
+ return {app,events,modal,storage,requests};
 }
 test('landing includes interactive demo, operator attribution, contact and accurate payment disclosures',async()=>{
  const {app}=await boot('/');assert.match(app.innerHTML,/Your business/);assert.match(app.innerHTML,/mini-editor/);assert.match(app.innerHTML,/iCreate Solutions &amp; Services|iCreate Solutions & Services/);assert.match(app.innerHTML,/876-585-7469/);assert.match(app.innerHTML,/manual reconciliation/);assert.ok(!app.innerHTML.includes('876-582-5685'));
@@ -41,4 +42,20 @@ test('report page provides a private case form and store context',async()=>{
 test('public consultation is available and the developer console requires sign-in',async()=>{
  const consultation=await boot('/consultation');assert.match(consultation.app.innerHTML,/Request a consultation/);
  const privatePage=await boot('/developer');assert.match(privatePage.app.innerHTML,/Operator sign-in/);assert.doesNotMatch(privatePage.app.innerHTML,/Paid rentals|sample console|developer\/demo/);
+});
+
+test('a developer can open Vendors from Subscriptions, including from the old tab ID',async()=>{
+ const {app,events,requests}=await boot('/developer','?tab=subscriptions',{
+  '/api/session':{user:{id:'operator'},operator:true,csrf:'test'},
+  '/api/operator/billing':{plans:[],rentals:[],events:[]},
+  '/api/operator/vendors':{tenants:[{id:'qa',slug:'plaza-test-workspace',settings:{name:'Plaza Test Vendor'},email:'qa@example.invalid',test:true,primaryTest:true}]}
+ });
+ assert.match(app.innerHTML,/<h1>Subscriptions<\/h1>/);
+ assert.match(app.innerHTML,/data-id="vendors"/);
+ await events.get('click')({target:{closest:()=>({dataset:{action:'developer-tab',id:'stores'}})}});
+ assert.match(app.innerHTML,/<h1>Vendors<\/h1>/);
+ assert.match(app.innerHTML,/Plaza Test Vendor/);
+ assert.match(app.innerHTML,/Open vendor workspace/);
+ assert.match(app.innerHTML,/Generate test login/);
+ assert.ok(requests.some(([url,method])=>url==='/api/operator/vendors'&&method==='POST'));
 });

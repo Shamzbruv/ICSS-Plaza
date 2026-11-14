@@ -90,6 +90,8 @@ export async function createApp(options={}) {
  }
  const b=req.body||{};
  if(options.ownerProvisioning&&path==='/api/developer/provision'&&method==='POST'){limit(req,'developer-provision',8);return respond(res,await access.provision(b),201);}
+ if(path==='/api/operator/vendors'&&method==='POST'){requireOperator(req);return respond(res,{tenants:await ops.vendors(req.user.id)});}
+ if(path==='/api/operator/vendors/test-login'&&method==='POST'){requireOperator(req);limit(req,'vendor-test-login',12);return respond(res,await ops.renewTestVendorLogin(req.user.id));}
  const vendorAccess=path.match(/^\/api\/operator\/vendors\/([a-f0-9]{24})\/access$/);
  if(vendorAccess&&['POST','DELETE'].includes(method)){
   requireOperator(req);
@@ -316,7 +318,8 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
  const file=resolve(publicDir,'.'+page);if(!file.startsWith(publicDir+'/')||!existsSync(file))fail('Page not found.',404);
  const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
- res.writeHead(200,{'Content-Type':types[extname(file)]||'application/octet-stream','Cache-Control':page==='/index.html'?'no-cache':'public, max-age=3600'});if(method==='HEAD')return res.end();
+ const ext=extname(file);
+ res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':['.html','.js','.css'].includes(ext)?'no-cache':'public, max-age=3600'});if(method==='HEAD')return res.end();
  if(page==='/index.html'){const origin=(baseURL||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));return res.end(readFileSync(file,'utf8').replaceAll('__PLAZA_ORIGIN__',origin));}
  return res.end(readFileSync(file));
  }catch(e){if(!res.headersSent){if(!e.status)console.error('Request failed:',e.code||e.name);respond(res,{error:e.status?e.message:'Something went wrong. Please try again.'},e.status||500);}else res.end();}

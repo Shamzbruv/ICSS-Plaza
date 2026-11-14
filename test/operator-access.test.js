@@ -46,6 +46,35 @@ test('developer provisioning reserves the email and vendor support grants are bo
  assert.equal((await req(route,'DELETE',{},op,grant)).status,200);
  assert.equal((await req(admin,'GET',null,op,grant)).status,403);
  assert.equal((await req(admin,'GET',null,a)).data.tenant.settings.name,'Updated vendor');
+
+ const directory='/api/operator/vendors',qaLogin=directory+'/test-login';
+ assert.equal((await req(directory,'POST',{})).status,401);
+ assert.equal((await req(directory,'POST',{},a)).status,403);
+ const openDirectory=()=>req(directory,'POST',{},op);
+ const [first,second]=await Promise.all([openDirectory(),openDirectory()]);
+ assert.equal(first.status,200);assert.equal(second.status,200);
+ const qa=first.data.tenants[0];
+ assert.equal(qa.settings.name,'Plaza Test Vendor');assert.equal(qa.primaryTest,true);
+ assert.deepEqual(second.data.tenants.filter(x=>x.primaryTest).map(x=>x.id),[qa.id]);
+ assert.ok(first.data.tenants.some(x=>x.id===tid&&!x.test));
+ const reason='Check the sample catalogue.';
+ const qaGrant=await req(directory+'/'+qa.id+'/access','POST',{reason},op);
+ assert.equal(qaGrant.status,201);
+ const qaAdmin='/api/admin/'+qa.id,sample=(await req(qaAdmin,'GET',null,op,qaGrant.data.id)).data;
+ assert.ok(sample.products.some(p=>p.sku==='QA-TOTE'));
+ assert.equal((await req(qaLogin,'POST',{},a)).status,403);
+ const credentials=(await req(qaLogin,'POST',{},op)).data;
+ assert.equal(credentials.email,qa.email);
+ const signedIn=await req('/api/login','POST',{email:credentials.email,password:credentials.password});
+ assert.equal(signedIn.status,200);const qaAuth={cookie:signedIn.cookie};Object.assign(qaAuth,(await req('/api/session','GET',null,qaAuth)).data);
+ assert.equal(qaAuth.operator,false);
+ assert.equal(qaAuth.tenants[0].id,qa.id);
+ assert.equal((await req(qaAdmin+'/settings','PUT',{published:true,vendorAcknowledgement:true},qaAuth)).status,403);
+ const newLogin=await req(qaLogin,'POST',{},op);
+ assert.equal(newLogin.status,200);assert.notEqual(newLogin.data.password,credentials.password);
+ assert.equal((await req('/api/login','POST',{email:credentials.email,password:credentials.password})).status,401);
+ assert.equal((await req('/api/session','GET',null,qaAuth)).data.user,null);
+
  const old=await fetch(base+'/developer/demo',{redirect:'manual'});assert.equal(old.status,303);assert.equal(old.headers.get('location'),'/developer');
  await database.run('UPDATE plaza_developers SET enabled=0 WHERE user_id=?',op.user.id);
  assert.equal((await req('/api/operator/overview','GET',null,op)).status,403);

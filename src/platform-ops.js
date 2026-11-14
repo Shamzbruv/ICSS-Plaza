@@ -1,13 +1,44 @@
 import {randomBytes,timingSafeEqual} from 'node:crypto';
-import {decrypt,defaults,encrypt,fail,hash,id,passwordHash,text} from './model.js';
+import {decrypt,defaults,encrypt,fail,hash,id,passwordHash,product,text} from './model.js';
 
 const stages=['new','contacted','scheduled','completed','closed'];
 const topics=['setup','payments','migration','pricing','other'];
 const day=86400000;
+export const testVendorSlug='plaza-test-workspace';
 export function createPlatformOps({db,key,notify,operatorEmail,limit,email,audit,testAccess}) {
  const {one,all,run,tx}=db;
  const protectedData=x=>encrypt(x,key);
+ async function ensureTestVendor(actor){
+  const existing=await one('SELECT t.id,t.owner,u.email FROM tenants t JOIN users u ON u.id=t.owner WHERE t.slug=?',testVendorSlug);
+  if(existing)return existing;
+  const uid=id(),tid=id(),now=Date.now(),expiry=now+14*day,testVendorEmail='plaza-test-'+uid+'@example.invalid';
+  await run('INSERT INTO users VALUES(?,?,?,?)',uid,testVendorEmail,passwordHash(randomBytes(32).toString('hex')),now);
+  await run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)',tid,testVendorSlug,uid,'trial',expiry,JSON.stringify({...defaults(),name:'Plaza Test Vendor',contactEmail:testVendorEmail}),now);
+  for(const p of [
+   {name:'Sample canvas tote',sku:'QA-TOTE',price:250000,stock:12,image:'/assets/tote.svg'},
+   {name:'Sample stoneware mug',sku:'QA-MUG',price:180000,stock:8,image:'/assets/mug.svg'}
+  ])await run('INSERT INTO products VALUES(?,?,?,?)',id(),tid,JSON.stringify(product({...p,description:'Sample product for testing the storefront editor.'})),now);
+  await audit(tid,actor,'developer.test-vendor.created');
+  return {id:tid,owner:uid,email:testVendorEmail};
+ }
  return {
+  async vendors(actor){
+   if(!await one('SELECT id FROM tenants WHERE slug=?',testVendorSlug))await tx(()=>ensureTestVendor(actor),'signup');
+   return (await all('SELECT t.id,t.slug,t.settings,t.status,t.trial_end,u.email FROM tenants t JOIN users u ON u.id=t.owner ORDER BY CASE WHEN t.slug=? THEN 0 ELSE 1 END,t.created DESC',testVendorSlug))
+    .map(t=>({...t,settings:{name:JSON.parse(t.settings).name},test:t.slug.startsWith('plaza-test-'),primaryTest:t.slug===testVendorSlug}));
+  },
+  async renewTestVendorLogin(actor){
+   return tx(async()=>{
+    const t=await ensureTestVendor(actor);
+    const password=randomBytes(21).toString('base64url'),expiresAt=Date.now()+14*day;
+    await run('UPDATE users SET password=? WHERE id=?',passwordHash(password),t.owner);
+    await run("UPDATE tenants SET status='trial',trial_end=? WHERE id=?",expiresAt,t.id);
+    await run('DELETE FROM sessions WHERE user_id=?',t.owner);
+    await run('DELETE FROM resets WHERE user_id=?',t.owner);
+    await audit(t.id,actor,'developer.test-vendor.login-reset');
+    return {email:t.email,password,expiresAt};
+   },'signup');
+  },
   async consult(req,b) {
    limit(req,'consultation-request',5);
    if(b.website||b.consent!==true)fail('Please confirm the contact and privacy notice.');
@@ -43,7 +74,7 @@ export function createPlatformOps({db,key,notify,operatorEmail,limit,email,audit
   },
   async overview() {
    const [stores,orders,reports,consultations,rentals,revenue]=await Promise.all([
-    all('SELECT status,COUNT(*) AS n FROM tenants GROUP BY status'),
+    all("SELECT status,COUNT(*) AS n FROM tenants WHERE slug NOT LIKE 'plaza-test-%' GROUP BY status"),
     all('SELECT state,COUNT(*) AS n FROM orders GROUP BY state'),
     one("SELECT COUNT(*) AS n FROM vendor_reports WHERE status NOT IN ('resolved','closed')"),
     one("SELECT COUNT(*) AS n FROM plaza_consultations WHERE status IN ('new','contacted','scheduled')"),

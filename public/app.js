@@ -1,13 +1,14 @@
 import {demoStore} from './demo-data.js';
 import {legalPages,policyVersion} from './legal.js?v=plaza-mail-1';
-import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js';
+import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=plaza-vendors-2';
 import {publicReportPage,reportReceipt,reportCase,reportQueue,operatorCase} from './trust-ui.js';
 const app=document.querySelector('#app'), modal=document.querySelector('#modal');
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID().replaceAll('-','');
 let session={user:null,tenants:[],csrf:''},catalog={gateways:[]},state=null,tab='overview',demo=false,store=null,search='',category='All',sort='featured';
 const local={get(k,f){try{return JSON.parse(localStorage.getItem(k))??f;}catch{return f;}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{toast('Your browser could not save these changes.');}},remove(k){localStorage.removeItem(k);}};
-let reportAccess=null,reportFilter='open',reportPage=1,devTab='overview',devData=null,support=null;
+let reportAccess=null,reportFilter='open',reportPage=1,devTab='overview',devData=null,devLoad=0,support=null;
+const developerTab=tab=>tab==='stores'?'vendors':consoleTabs.some(t=>t[0]===tab)?tab:null;
 const demoKey='icss-plaza-demo-v1';
 const money=(cents,currency=state?.settings?.currency||store?.settings?.currency||'JMD')=>new Intl.NumberFormat('en-JM',{style:'currency',currency,maximumFractionDigits:2}).format(cents/100);
 const logo=()=>'<a class="logo" href="/" aria-label="ICSS Plaza home"><img src="/assets/brand/logo-horizontal.png" alt="ICSS Plaza — by iCreate Solutions &amp; Services" width="900" height="220"></a>';
@@ -72,22 +73,32 @@ async function refreshBilling(){
  const data=await api('/api/admin/'+state.id+'/billing');
  const el=document.querySelector('#vendor-billing');if(tab==='billing'&&el)el.outerHTML=billingPanel(data);
 }
-async function operatorPage(){
+async function operatorPage(target=devTab,updateURL=false){
  if(!session.operator){
    app.innerHTML=nav()+`<main class="wrap trust-page"><div class="dev-hero"><div class="eyebrow">ICSS Plaza · Operator access</div><h1>Developer console</h1><p>${session.user?'This account is not authorised to manage the platform.':'Sign in with your Plaza operator account.'}</p><div class="row trust-actions">${session.user?button('Sign out','logout','outline'):'<a class="btn" href="/login?next=developer">Operator sign-in →</a>'}</div></div></main>`+footer();return;
  }
- let data,trustHTML='';
- {
-  data=devData||{};
-  if(devTab==='overview'||devTab==='system')data.overview=await api('/api/operator/overview');
-  if(['vendors','support','audit'].includes(devTab))data.operator=await api('/api/operator');
-  if(devTab==='subscriptions')data.billing=await api('/api/operator/billing');
-  if(devTab==='consultations'){const [consultations,overview]=await Promise.all([api('/api/operator/consultations'),api('/api/operator/overview')]);data.consultations=consultations;data.overview=overview;}
-  if(devTab==='trust'){const cases=await api('/api/operator/reports?status='+reportFilter+'&page='+reportPage);trustHTML=reportQueue(cases,reportFilter,reportPage);}
+ const load=++devLoad,data={...devData};
+ let trustHTML='';
+ try{
+  if(target==='overview'||target==='system')data.overview=await api('/api/operator/overview');
+  if(target==='vendors')data.vendors=(await api('/api/operator/vendors','POST',{})).tenants;
+  if(['support','audit'].includes(target))data.operator=await api('/api/operator');
+  if(target==='subscriptions')data.billing=await api('/api/operator/billing');
+  if(target==='consultations'){const [consultations,overview]=await Promise.all([api('/api/operator/consultations'),api('/api/operator/overview')]);data.consultations=consultations;data.overview=overview;}
+  if(target==='trust'){const cases=await api('/api/operator/reports?status='+reportFilter+'&page='+reportPage);trustHTML=reportQueue(cases,reportFilter,reportPage);}
+  if(load!==devLoad)return;
+  app.innerHTML=developerShell({tab:target,logo,content:developerView(target,data,{trustHTML})});
+ }catch(error){
+  if(load!==devLoad)return;
+  const message=target==='vendors'?'Could not load Vendors. Try opening the tab again.':error.message;
+  if(updateURL)throw Error(message);
+  app.innerHTML=developerShell({tab:target,logo,content:`<section class="panel"><p role="alert">${esc(message)}</p>${button('Try again','developer-tab','outline sm',`data-id="${target}"`)}</section>`});
+  return;
  }
- devData=data;
- app.innerHTML=developerShell({tab:devTab,logo,content:developerView(devTab,data,{trustHTML})});
+ devTab=target;devData=data;
+ if(updateURL)history.replaceState(null,'','/developer?tab='+target);
 }
+function showTestLogin(r){showModal(`<h2>Test vendor login</h2><p>Copy the temporary password now. Sign in from a private browser window to keep your developer session open.</p><label class="field">Email<input value="${esc(r.email)}" readonly></label><label class="field">Temporary password<input value="${esc(r.password)}" readonly></label><p>Expires ${esc(new Date(r.expiresAt).toLocaleDateString('en-JM'))}.</p><a class="btn" href="/login" target="_blank" rel="noopener">Open vendor sign-in →</a>`);}
 async function saveSettings(payload){if(demo){state.settings={...state.settings,...payload};saveDemo();}else{const r=await api('/api/admin/'+state.id+'/settings','PUT',payload);state.settings=r.settings;}toast('Saved. Your store has been updated.');dashboard();}
 async function adminMutation(action,method,data){if(!demo)await api('/api/admin/'+state.id+'/'+action,method,data);await refresh();}
 function readFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Could not read that file.'));reader.readAsDataURL(file);});}
@@ -190,12 +201,12 @@ document.addEventListener('click',async e=>{
  if(el.dataset.policy){renderStore(el.dataset.policy);window.scrollTo(0,0);return;}
  const action=el.dataset.action,pid=el.dataset.id;
  if(action==='developer-tab'){
-   if(!consoleTabs.some(t=>t[0]===pid))return;
-   devTab=pid;history.replaceState(null,'','/developer?tab='+pid);
-   await operatorPage();return;
+   const next=developerTab(pid);
+   if(next)await operatorPage(next,true);
+   return;
  }
 
- if(action==='vendor-support'){const vendor=devData.operator.tenants.find(t=>t.id===pid);if(!vendor)return;showModal(`<h2>Open ${esc(vendor.settings.name)}</h2><p>Use this for a vendor’s support request. Edits go to the real store and are recorded under your name. This session expires in 30 minutes.</p><form data-form="vendor-support" data-id="${esc(pid)}"><label class="field">Reason or support ticket<textarea name="reason" minlength="10" maxlength="300" required placeholder="What did the vendor ask you to change?"></textarea></label><div class="form-error" role="alert"></div><button type="submit" class="btn">Open vendor workspace →</button></form>`);return;}
+ if(action==='vendor-support'){const vendor=devData.vendors.find(t=>t.id===pid);if(!vendor)return;showModal(`<h2>Open ${esc(vendor.settings.name)}</h2><p>${vendor.test?'Practice editing this test store.':'Use this for a vendor’s support request. Edits go to the real store.'} Changes are recorded under your name. This session expires in 30 minutes.</p><form data-form="vendor-support" data-id="${esc(pid)}"><label class="field">Reason or support ticket<textarea name="reason" minlength="10" maxlength="300" required placeholder="${vendor.test?'What are you testing?':'What did the vendor ask you to change?'}"></textarea></label><div class="form-error" role="alert"></div><button type="submit" class="btn">Open vendor workspace →</button></form>`);return;}
  if(action==='vendor-support-end'&&support){try{await api('/api/operator/vendors/'+support.tenant+'/access','DELETE',{});}finally{sessionStorage.removeItem('plaza-vendor-access-'+support.tenant);location.href='/developer?tab=vendors';}return;}
  if(action==='open-consultation'){const r=devData.consultations.requests.find(x=>x.id===pid);if(r)showModal(consultantDialog(r,devData.overview.configured));return;}
  if(action==='new-plan'){showModal(`<h2>New monthly rental plan</h2><p>Choose a price and currency. A PayPal plan ID is optional and must match the same USD price.</p><form data-form="rental-plan">${field('Plan name','name')}${field('Monthly price','amount','','number')}${select('Currency','currency','JMD',[['JMD','JMD'],['USD','USD']])}${field('PayPal plan ID (optional)','paypalPlan')}<div class="form-error"></div><button type="submit" class="btn">Create plan</button></form>`);return;}
@@ -203,7 +214,7 @@ document.addEventListener('click',async e=>{
  if(action==='start-fygaro'||action==='start-paypal'){el.disabled=true;try{const r=await api('/api/admin/'+state.id+'/billing/checkout','POST',{provider:action.slice(6),plan:pid});location.href=r.url;}finally{el.disabled=false;}return;}
  if(action==='cancel-paypal'||action==='operator-cancel-rental'){showModal(`<h2>Cancel automatic renewal?</h2><p>This stops future PayPal renewals. It does not issue a refund. The verified paid period remains on the rental.</p><form data-form="cancel-rental" data-id="${esc(pid)}" data-operator="${action==='operator-cancel-rental'}"><div class="form-error"></div><button type="submit" class="btn danger">Cancel automatic renewal</button></form>`);return;}
  if(action==='tenant-detail'){const r=await api('/api/operator/stores/'+pid);showModal(`<h2>${esc(r.name)}</h2><p>/s/${esc(r.slug)} · ${esc(r.status)}</p><p>Public access: ${r.accessible&&r.published?'Enabled':'Off'} · Restriction: ${esc(r.restriction||'None')}</p><p>Products: ${r.products} · Orders: ${r.orders} · Images: ${r.images} · Reports: ${r.vendor_reports}</p>`);return;}
- if(action==='create-test-account'){el.disabled=true;try{const r=await api('/api/operator/test-account','POST',{});showModal(`<h2>Test account ready</h2><p>Save these details now. Open the sign-in page in a private window so your operator session stays separate.</p>${field('Email','qaEmail',r.email)}${field('One-time displayed password','qaPassword',r.password)}<p>Expires ${esc(new Date(r.expiresAt).toLocaleDateString('en-JM'))}.</p><a class="btn" href="/login" target="_blank" rel="noopener">Open test sign-in →</a>`);}finally{el.disabled=false;}return;}
+ if(action==='create-test-account'||action==='generate-test-login'){el.disabled=true;try{const r=await api(action==='generate-test-login'?'/api/operator/vendors/test-login':'/api/operator/test-account','POST',{});showTestLogin(r);}finally{el.disabled=false;}return;}
  if(action==='close'){modal.close();return;}
  if(action==='logout'){await api('/api/logout','POST',{});location.href='/';return;}
  if(action==='reset-demo'){showModal('<h2>Reset your demo?</h2><p>This clears your sample products, settings, orders and uploaded images in this browser.</p>'+button('Reset demo','confirm-reset'));return;}
@@ -281,7 +292,7 @@ async function boot(){
   setTimeout(()=>{sessionStorage.removeItem('plaza-vendor-access-'+tenant);location.replace('/developer?tab=vendors');},Math.max(0,support.expires-Date.now()));
   tab='appearance';document.title='Vendor workspace | ICSS Plaza';dashboard();return;
  }
- if(['/developer','/operator'].includes(path)){const next=new URLSearchParams(location.search).get('tab');devTab=next==='stores'?'vendors':consoleTabs.some(x=>x[0]===next)?next:'overview';session=await api('/api/session');document.title='Developer console | ICSS Plaza';await operatorPage();return;}
+ if(['/developer','/operator'].includes(path)){devTab=developerTab(new URLSearchParams(location.search).get('tab'))||'overview';session=await api('/api/session');document.title='Developer console | ICSS Plaza';await operatorPage();return;}
  if(path.startsWith('/legal')){legal();return;}
  if(path==='/report'){session=await api('/api/session');document.title='Report a vendor | ICSS Plaza';app.innerHTML=publicReportPage({nav,footer,query:new URLSearchParams(location.search)});return;}
  catalog=await api('/api/catalog');
