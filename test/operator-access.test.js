@@ -18,7 +18,7 @@ test('developer provisioning reserves the email and vendor support grants are bo
   const r=await fetch(base+path,{method,headers:{Origin:origin,'Content-Type':'application/json',...(auth.cookie?{Cookie:auth.cookie,'X-CSRF-Token':auth.csrf}:{}),...(support?{'X-Plaza-Support':support}:{})},...(data?{body:JSON.stringify(data)}:{})});
   return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};
  }
- const signup=(email,slug)=>req('/api/signup','POST',{email,password,name:slug,slug,acceptTerms:true});
+ const signup=(email,slug)=>req('/api/signup','POST',{email,password,name:slug,slug,acceptTerms:true,template:"beauty"});
  async function login(email){const r=await req('/api/login','POST',{email,password});assert.equal(r.status,200);const a={cookie:r.cookie};return {...a,...(await req('/api/session','GET',null,a)).data};}
  assert.equal((await signup(email,'spoof-dev')).status,409);
  assert.equal((await req('/api/developer/provision','POST',{invite:'aa'.repeat(32),password})).status,404);

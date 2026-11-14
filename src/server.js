@@ -9,6 +9,8 @@ import { developerAuth } from './developer-auth.js';
 import { operatorAccess, ownerEmail, permitsSupport } from './operator-access.js';
 import { launchTestAccess } from './test-access.js';
 import { policyVersion } from '../public/trust-data.js';
+import { getTemplate } from '../public/store-templates.js';
+import { designKeys } from '../public/store-design-fields.js';
 import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,11 +74,11 @@ export async function createApp(options={}) {
  function respond(res,data,status=200){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));}
  function redirect(res,url){res.writeHead(303,{Location:url,'Cache-Control':'no-store'});res.end();}
  async function session(req,res,user){const token=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');await run('INSERT INTO sessions VALUES(?,?,?,?)',hash(token),user.id,csrf,Date.now()+7*86400000);res.setHeader('Set-Cookie',`plaza_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${production?'; Secure':''}`);req.user=user;req.csrf=csrf;}
- async function body(req){let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>4*1024*1024)fail('Request too large.',413);chunks.push(chunk);}const raw=Buffer.concat(chunks);req.raw=raw;try{return raw.length?JSON.parse(raw.toString()):{};}catch{fail('Invalid JSON.');}}
+ async function body(req,max=4*1024*1024){let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>max)fail('Request too large.',413);chunks.push(chunk);}const raw=Buffer.concat(chunks);req.raw=raw;try{return raw.length?JSON.parse(raw.toString()):{};}catch{fail('Invalid JSON.');}}
  const server=http.createServer(async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Frame-Options','DENY');
  res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
- res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'");
+ res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-src 'self'; connect-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'");
  if(production)res.setHeader('Strict-Transport-Security','max-age=31536000');
  try {
  const u=new URL(req.url,baseURL || 'http://localhost'),path=u.pathname,method=req.method;
@@ -86,7 +88,16 @@ export async function createApp(options={}) {
  const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path)||path==='/api/webhooks/resend'||/^\/api\/billing\/hooks\/(fygaro|paypal)$/.test(path);
  if(!['GET','HEAD'].includes(method)){
  if(!webhook){const origin=resolveRequestOrigin({baseURL,host:req.headers.host,production});if(!origin||req.headers.origin!==origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
- req.body=await body(req);
+ const mediaUpload=method==='POST'&&/^\/api\/admin\/[a-f0-9]{24}\/images$/.test(path);
+ if(mediaUpload){
+  requireUser(req);
+  const tenant=path.split('/')[3];
+  if(req.headers['x-plaza-support']){
+   if(!await access.active(req,tenant))fail('Vendor support session ended or is unavailable.',403);
+  }else owner(req,await getTenantId(tenant));
+  limit(req,'store-media-upload',60);
+ }
+ req.body=await body(req,mediaUpload?17*1024*1024:undefined);
  }
  const b=req.body||{};
  if(options.ownerProvisioning&&path==='/api/developer/provision'&&method==='POST'){limit(req,'developer-provision',8);return respond(res,await access.provision(b),201);}
@@ -129,7 +140,17 @@ export async function createApp(options={}) {
  limit(req,'signup',10);const em=email(b.email),pw=passwordHash(b.password),slug=text(b.slug,48,3).toLowerCase();if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||['admin','demo','api','www','plaza','support','developer','consultation'].includes(slug)||slug.startsWith('plaza-test-'))fail('Choose a store address using letters, numbers and hyphens.');
  if(access.reserved(em))fail('This email is reserved. Contact Plaza support.',409);
  if(b.acceptTerms!==true)fail('Accept the platform terms and independent vendor agreement to continue.');
- const uid=id(),tid=id(),storeName=text(b.name,180,1);(await tx(async ()=>{if((await one('SELECT id FROM users WHERE email=?',em)))fail('This email is already registered. Sign in instead.',409);if((await one('SELECT id FROM tenants WHERE slug=?',slug)))fail('That store address is taken.',409);await run('INSERT INTO users VALUES(?,?,?,?)',uid,em,pw,Date.now());(await run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)',tid,slug,uid,'trial',Date.now()+14*86400000,JSON.stringify({...defaults(),name:storeName,contactEmail:em}),Date.now()));await notify('welcome',uid,em,{store:storeName});},'signup'));
+ const template=getTemplate(b.template);
+ if(!template)fail('Choose a storefront template.');
+ const uid=id(),tid=id(),storeName=text(b.name,180,1),now=Date.now();
+ const initial={...defaults(),...template.settings,template:template.id,name:storeName,contactEmail:em};
+ await tx(async ()=>{
+  if(await one('SELECT id FROM users WHERE email=?',em))fail('This email is already registered. Sign in instead.',409);
+  if(await one('SELECT id FROM tenants WHERE slug=?',slug))fail('That store address is taken.',409);
+  await run('INSERT INTO users VALUES(?,?,?,?)',uid,em,pw,now);
+  await run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)',tid,slug,uid,'trial',now+14*86400000,JSON.stringify(initial),now);
+  await notify('welcome',uid,em,{store:storeName});
+ },'signup');
  (await session(req,res,{id:uid,email:em}));await audit(tid,uid,'signup.vendor-agreement.'+policyVersion);return respond(res,{ok:true},201);
  }
  if(path==='/api/login'&&method==='POST'){
@@ -164,7 +185,7 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(path==='/api/reset'&&method==='POST'){limit(req,'reset',20);const resetHash=hash(text(b.token,100,1));await tx(async ()=>{const r=await one('SELECT * FROM resets WHERE token=? AND expires>?',resetHash,Date.now());if(!r)fail('Reset token is invalid or expired.');await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),r.user_id);(await run('DELETE FROM sessions WHERE user_id=?',r.user_id));await run('DELETE FROM resets WHERE user_id=?',r.user_id);const user=await one('SELECT email FROM users WHERE id=?',r.user_id);await notify('password_changed',resetHash,user?.email);},'password-reset');return respond(res,{ok:true});}
  let m;
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)$/))&&method==='GET'){
- const t=(await getTenant(m[1]));if(!await available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);return respond(res,{id:t.id,slug:t.slug,settings:t.settings,checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
+ const t=(await getTenant(m[1]));if(!await available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);const {designDraft,...publicSettings}=t.settings;return respond(res,{id:t.id,slug:t.slug,settings:publicSettings,checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
  }
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)\/orders$/))&&method==='POST'){
  limit(req,'checkout',60);
@@ -250,7 +271,7 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  metrics:{orderCount:0,confirmedRevenue:0},orders:[],requests:[],support
  });
  if(!action&&method==='GET')return respond(res,{tenant:t,metrics:{orderCount:(await one('SELECT COUNT(*) AS n FROM orders WHERE tenant_id=?',t.id)).n,confirmedRevenue:(await one(revenueSQL(database),t.id)).n},products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})),orders:(await all('SELECT * FROM orders WHERE tenant_id=? ORDER BY created DESC LIMIT 500',t.id)).map(r=>{const o=readOrder(r);delete o.paymentConfig;return o;}),gateways:(await all('SELECT * FROM gateways WHERE tenant_id=?',t.id)).map(g=>({provider:g.provider,enabled:!!g.enabled,environment:decrypt(g.config,key).environment,configured:true})),images:(await all('SELECT id,name,mime FROM images WHERE tenant_id=? ORDER BY created DESC',t.id)),requests:(await all('SELECT * FROM requests WHERE tenant_id=? ORDER BY created DESC',t.id))});
- if(method==='PUT'&&action==='settings'||method==='POST'&&['products','images','requests'].includes(action)||['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action)||method==='PUT'&&/^gateways\/[a-z]+$/.test(action)){
+ if(method==='PUT'&&['settings','design'].includes(action)||method==='POST'&&['products','images','requests','sample-products'].includes(action)||['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action)||method==='PUT'&&/^gateways\/[a-z]+$/.test(action)){
  const result=await tx(async ()=>{
  const current=await getTenantId(idForStore),t=support?current:owner(req,current);let a;
  if(support){
@@ -258,20 +279,52 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
   if(action==='settings'&&['published','currency','defaultPayment','contactEmail'].some(k=>Object.hasOwn(b,k)&&b[k]!==t.settings[k]))fail('Only the vendor can change publishing, currency, default payment, or the contact email.',403);
   await audit(t.id,req.user.id,'vendor-support.'+method.toLowerCase()+'.'+action.replaceAll('/','.')+'.'+support.id);
  }
+ if(action==='design'&&method==='PUT'){
+  const {designDraft,...current}=t.settings;
+  if(!['save','apply','discard'].includes(b.mode))fail('Choose a design action.');
+  if(support&&(b.mode==='discard'||b.mode==='apply'&&current.published))fail('Only the vendor can discard drafts or apply changes to a live storefront.',403);
+  if(b.mode!=='discard'&&(!b.design||typeof b.design!=='object'||Array.isArray(b.design)||Object.keys(b.design).some(k=>!designKeys.includes(k))))fail('Invalid storefront design.');
+  const patch=b.mode==='discard'?{}:{...designDraft,...b.design};
+  const next=settings(patch,current);
+  await checkDesignMedia(next,t.id);
+  if(b.mode==='apply'&&current.published){
+   if(!await available(t))fail('Your store rental is inactive.',403);
+   if(!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('A live storefront needs the seller address and delivery, returns, privacy and sales policies.');
+  }
+  const draft=Object.fromEntries(Object.keys(patch).map(k=>[k,next[k]]));
+  const updated=b.mode==='apply'?next:b.mode==='save'?{...current,designDraft:draft}:current;
+  await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify(updated),t.id);
+  await audit(t.id,req.user.id,'design.'+b.mode);
+  return {payload:{settings:updated}};
+ }
  if(action==='settings'&&method==='PUT'){
- const next=settings(b,t.settings);if(next.published&&!t.settings.published&&b.vendorAcknowledgement!==true)fail('Confirm the independent vendor agreement before publishing.');for(const k of ['heroImage','logo'])if(next[k].startsWith('/api/images/')&&!(await one('SELECT id FROM images WHERE id=? AND tenant_id=?',next[k].split('/').pop(),t.id)))fail('Image does not belong to this store.');
+ let next=settings(b,t.settings);if(next.published&&!t.settings.published&&b.vendorAcknowledgement!==true)fail('Confirm the independent vendor agreement before publishing.');
+ if(next.published&&!t.settings.published&&next.designDraft){const {designDraft,...current}=next;next=settings(designDraft,current);}
+ await checkDesignMedia(next,t.id);
  if(next.currency!==t.settings.currency&&(await one('SELECT id FROM orders WHERE tenant_id=? LIMIT 1',t.id)))fail('Currency cannot change after the first order. Contact support.');
  const methods=(await activeGateways({...t,settings:next}));if(next.defaultPayment&&!methods.some(g=>g.provider===next.defaultPayment))fail('Default payment must be enabled and support this currency.');
  if(next.published){if(!support&&!await available(t))fail('Your store rental is inactive.',403);if(!next.contactEmail||!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('Add seller contact details, business address, delivery, return, privacy and terms policies before publishing.');if(!next.defaultPayment)fail('Set up and select a default payment method before publishing.');if(!(await all('SELECT data FROM products WHERE tenant_id=?',t.id)).some(p=>JSON.parse(p.data).active))fail('Add an active product before publishing.');}
  (await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify(next),t.id));await audit(t.id,req.user.id,'settings.updated');if(next.published&&!t.settings.published)await audit(t.id,req.user.id,'publish.vendor-agreement.'+policyVersion);return {payload:{settings:next}};
+ }
+ if(action==='sample-products'&&method==='POST'){
+  const template=getTemplate(t.settings.template);
+  if(!template)fail('This store does not have template sample products.',404);
+  if(await one('SELECT id FROM products WHERE tenant_id=? LIMIT 1',t.id))fail('Sample products can only be added to an empty catalogue.',409);
+  for(const [index,p] of template.items.entries()){
+   const sample=product({...p,variants:p.variants?.map(v=>({...v,stock:0})),sku:'SAMPLE-'+(index+1),stock:0,active:false,featured:index===0,description:'Replace this example with a description of your own product.'});
+   await run('INSERT INTO products VALUES(?,?,?,?)',id(),t.id,JSON.stringify(sample),Date.now()-index);
+  }
+  return {payload:{ok:true},status:201};
  }
  if(action==='products'&&method==='POST'){
  if((await one('SELECT COUNT(*) AS n FROM products WHERE tenant_id=?',t.id)).n>=1000)fail('Product limit reached. Contact support.');const p=product(b);await checkProductImages(p,t.id);const pid=id();await run('INSERT INTO products VALUES(?,?,?,?)',pid,t.id,JSON.stringify(p),Date.now());return {payload:{id:pid,...p},status:201};
  }
  if((a=action.match(/^products\/([a-f0-9]+)$/))){const row=(await one('SELECT * FROM products WHERE id=? AND tenant_id=?',a[1],t.id));if(!row)fail('Product not found.',404);if(method==='PUT'){const p=product(b);await checkProductImages(p,t.id);(await run('UPDATE products SET data=? WHERE id=? AND tenant_id=?',JSON.stringify(p),a[1],t.id));return {payload:{id:a[1],...p}};}if(method==='DELETE'){await run('DELETE FROM products WHERE id=? AND tenant_id=?',a[1],t.id);return {payload:{ok:true}};}}
  if(action==='images'&&method==='POST'){
- const name=text(b.name,200,1),raw=text(b.data,4200000,1);const match=raw.match(/^data:image\/(png|jpeg|webp);base64,([a-zA-Z0-9+/=]+)$/);if(!match)fail('Upload PNG, JPEG or WebP images only.');const bytes=Buffer.from(match[2],'base64');if(bytes.length>2*1024*1024)fail('Maximum image size is 2 MB.');
- const mime='image/'+match[1];const valid=mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):mime==='image/jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP';if(!valid)fail('Image content does not match its format.');
+ const name=text(b.name,200,1),raw=text(b.data,17*1024*1024,1);const match=raw.match(/^data:(image\/(?:png|jpeg|webp)|video\/(?:mp4|webm));base64,([a-zA-Z0-9+/=]+)$/);if(!match)fail('Upload a PNG, JPEG, WebP, MP4 or WebM file.');const mime=match[1],bytes=Buffer.from(match[2],'base64');
+ const video=mime.startsWith('video/');if(bytes.length>(video?12:2)*1024*1024)fail(video?'Maximum video size is 12 MB.':'Maximum image size is 2 MB.');
+ const valid=mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):mime==='image/jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:mime==='image/webp'?bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP':mime==='video/mp4'?bytes.length>=16&&bytes.subarray(4,8).toString()==='ftyp':bytes.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]))&&bytes.subarray(4,256).includes(Buffer.from('webm'));
+ if(!valid)fail('Media content does not match its file type.');
  const quota=(await one('SELECT COALESCE(SUM(length(bytes)),0) AS size,COUNT(*) AS n FROM images WHERE tenant_id=?',t.id));if(quota.size+bytes.length>100*1024*1024||quota.n>=200)fail('Media limit reached. Contact support.');const iid=id();await run('INSERT INTO images VALUES(?,?,?,?,?,?)',iid,t.id,mime,name,bytes,Date.now());return {payload:{id:iid,url:'/api/images/'+iid,name},status:201};
  }
  if((a=action.match(/^images\/([a-f0-9]+)$/))&&method==='DELETE'){
@@ -309,22 +362,60 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if((m=path.match(/^\/api\/operator\/([a-f0-9]+)\/reset$/))&&method==='POST'){
  requireOperator(req);const t=(await getTenantId(m[1]));if(!t)fail('Store not found.',404);const token=randomBytes(32).toString('hex'),expires=Date.now()+3600000;const queued=await tx(async()=>{await run('DELETE FROM resets WHERE user_id=?',t.owner);await run('INSERT INTO resets VALUES(?,?,?)',hash(token),t.owner,expires);await audit(t.id,req.user.id,'operator.password-reset-issued');const owner=await one('SELECT email FROM users WHERE id=?',t.owner);return notify('reset',hash(token),owner?.email,{token},{expires});},'password-reset');return respond(res,{queued,...(queued?{}:{token}),expiresInMinutes:60});
  }
- if((m=path.match(/^\/api\/images\/([a-f0-9]+)$/))&&method==='GET'){
- const row=(await one('SELECT * FROM images WHERE id=?',m[1]));const t=row?(await getTenantId(row.tenant_id)):null;if(!row||(!((await available(t)&&t.settings.published&&(await storefrontRestriction(t.id))!=='suspend')||req.user?.id===t.owner||await access.permitsImage(req,t.id))))fail('Image not found.',404);res.writeHead(200,{'Content-Type':row.mime,'Cache-Control':'private, no-store'});return res.end(Buffer.from(row.bytes));
+ if((m=path.match(/^\/api\/images\/([a-f0-9]+)$/))&&['GET','HEAD'].includes(method)){
+ const row=await one('SELECT * FROM images WHERE id=?',m[1]),t=row?await getTenantId(row.tenant_id):null;
+ if(!t)fail('Media not found.',404);
+ if(req.user?.id!==t.owner&&!await access.permitsImage(req,t.id)){
+  const {designDraft,...live}=t.settings,url='/api/images/'+row.id;
+  if(!live.published||!await available(t)||(await storefrontRestriction(t.id))==='suspend'||
+   !([...mediaReferences(live),...(await all('SELECT data FROM products WHERE tenant_id=?',t.id)).flatMap(p=>{const data=JSON.parse(p.data);return data.active?mediaReferences(data):[];})].some(([source])=>source===url)))fail('Media not found.',404);
+ }
+ const bytes=Buffer.from(row.bytes),headers={'Content-Type':row.mime,'Cache-Control':'private, no-store','Accept-Ranges':'bytes'};
+ const range=req.headers.range;
+ if(range){
+  const match=/^bytes=(\d*)-(\d*)$/.exec(range),suffix=match?.[1]==='',start=suffix?Math.max(0,bytes.length-Number(match[2])):Number(match?.[1]),end=suffix||!match?.[2]?bytes.length-1:Math.min(bytes.length-1,Number(match[2]));
+  if(!match||!match[1]&&!match[2]||!Number.isSafeInteger(start)||start>end){res.writeHead(416,{...headers,'Content-Range':'bytes */'+bytes.length});return res.end();}
+  res.writeHead(206,{...headers,'Content-Range':`bytes ${start}-${end}/${bytes.length}`,'Content-Length':end-start+1});
+  return res.end(method==='HEAD'?undefined:bytes.subarray(start,end+1));
+ }
+ res.writeHead(200,{...headers,'Content-Length':bytes.length});return res.end(method==='HEAD'?undefined:bytes);
  }
  if(path==='/developer/demo'||path==='/developer/demo/')return redirect(res,'/developer');
  if(path.startsWith('/api/'))fail('Endpoint not found.',404);
  if(method!=='GET'&&method!=='HEAD')fail('Method not allowed.',405);
- const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
+ const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|templates\/[a-z-]+|s\/[a-z0-9-]+)\/?$/.test(path)?'/index.html':path;
  const file=resolve(publicDir,'.'+page);if(!file.startsWith(publicDir+'/')||!existsSync(file))fail('Page not found.',404);
  const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
  const ext=extname(file);
+ if(page==='/store-canvas.html')res.setHeader('X-Frame-Options','SAMEORIGIN');
+ if(page==='/store-canvas.html')res.setHeader('Content-Security-Policy',res.getHeader('Content-Security-Policy').replace("frame-ancestors 'none'","frame-ancestors 'self'"));
  res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':['.html','.js','.css'].includes(ext)?'no-cache':'public, max-age=3600'});if(method==='HEAD')return res.end();
  if(page==='/index.html'){const origin=(baseURL||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));return res.end(readFileSync(file,'utf8').replaceAll('__PLAZA_ORIGIN__',origin));}
  return res.end(readFileSync(file));
  }catch(e){if(!res.headersSent){if(!e.status)console.error('Request failed:',e.code||e.name);respond(res,{error:e.status?e.message:'Something went wrong. Please try again.'},e.status||500);}else res.end();}
  });
- async function checkProductImages(p,tid){if(p.image.startsWith('/api/images/')&&!(await one('SELECT id FROM images WHERE id=? AND tenant_id=?',p.image.split('/').pop(),tid)))fail('Image does not belong to this store.');}
+ function mediaReferences(data){
+  const refs=[],add=(url,type)=>{if(typeof url==='string'&&url.startsWith('/api/images/'))refs.push([url,type]);};
+  for(const k of ['heroImage','logo','image'])add(data[k],'image/');
+  add(data.video,'video/');
+  for(const image of data.gallery||[])add(image,'image/');
+  for(const s of data.sections||[]){add(s.image,'image/');add(s.video,'video/');for(const image of s.images||[])add(image,'image/');}
+  return refs;
+ }
+ async function checkDesignMedia(data,tid){
+  const refs=mediaReferences(data);if(!refs.length)return;
+  const media=new Map((await all('SELECT id,mime FROM images WHERE tenant_id=?',tid)).map(x=>['/api/images/'+x.id,x.mime]));
+  for(const [source,type] of refs){
+   if(!media.has(source))fail(type==='image/'?'Image does not belong to this store.':'Video does not belong to this store.');
+   if(!media.get(source).startsWith(type))fail(type==='image/'?'Choose an image for this field.':'Choose a video for this field.');
+  }
+ }
+ const checkProductImages=checkDesignMedia;
  server.on('close',()=>{clearInterval(timer);clearInterval(mailTimer);void database.close().catch(error=>console.error('Database close failed:',error.code||error.name));});return {server,db:database.raw,database};
 }
-if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){const {server}=await createApp();server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>console.log('ICSS Plaza listening on port '+(process.env.PORT||3000)));}
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+ const arg=name=>process.argv.includes(name)?process.argv[process.argv.indexOf(name)+1]:undefined;
+ const {server}=await createApp();
+ const port=Number(process.env.PORT||arg('--port')||3000),host=arg('--host')||'0.0.0.0';
+ server.listen(port,host,()=>console.log('ICSS Plaza listening on port '+port));
+}

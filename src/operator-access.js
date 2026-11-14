@@ -78,8 +78,8 @@ export function operatorAccess({db,key,legacyEmail,audit,provision=null}){
 
 export function permitsSupport(action,method) {
  return method==='GET'&&(!action||action==='support-state')||
-   method==='PUT'&&action==='settings'||
-   method==='POST'&&['products','images'].includes(action)||
+   method==='PUT'&&['settings','design'].includes(action)||
+   method==='POST'&&['products','images','sample-products'].includes(action)||
    ['PUT','DELETE'].includes(method)&&/^products\/[a-f0-9]+$/.test(action)||
    method==='DELETE'&&/^images\/[a-f0-9]+$/.test(action);
 }

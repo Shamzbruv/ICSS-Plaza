@@ -20,7 +20,7 @@ test('Branded welcome is queued with signup and sent only once through Resend',a
  const {server,database}=await createApp({dataDir:dir,baseURL:origin,encryptionKey:key,mailEnv:env,mailFetcher:fetcher});
  t.after(async()=>{await new Promise(resolve=>server.close(resolve));rmSync(dir,{recursive:true,force:true});});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const result=await fetch('http://127.0.0.1:'+server.address().port+'/api/signup',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({email:'vendor@example.com',password:'test-password-only',name:'<Fake Store>',slug:'mail-shop',acceptTerms:true})});
+ const result=await fetch('http://127.0.0.1:'+server.address().port+'/api/signup',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({email:'vendor@example.com',password:'test-password-only',name:'<Fake Store>',slug:'mail-shop',acceptTerms:true,template:"beauty"})});
  assert.equal(result.status,201,await result.text());
  const raw=(await database.all('SELECT payload FROM email_outbox'))[0];
  assert.ok(raw?.payload);

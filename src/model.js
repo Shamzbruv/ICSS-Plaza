@@ -1,4 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
+import { classicSections, sectionTypes } from '../public/store-templates.js';
 export const id = () => randomBytes(12).toString('hex');
 export const hash = x => createHash('sha256').update(x).digest('hex');
 export const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -10,23 +11,55 @@ export function encrypt(value, key) { if (!/^[a-f0-9]{64}$/i.test(key || '')) fa
 export function decrypt(value, key) { const [iv, data, tag] = value.split(':'); const d = createDecipheriv('aes-256-gcm', Buffer.from(key, 'hex'), Buffer.from(iv, 'hex')); d.setAuthTag(Buffer.from(tag, 'hex')); return JSON.parse(Buffer.concat([d.update(Buffer.from(data, 'hex')), d.final()]).toString()); }
 export function safeURL(value, hosts) { const u = new URL(value); if (u.protocol !== 'https:' || u.username || u.password || (hosts && !hosts.some(h => u.hostname === h || u.hostname.endsWith('.' + h)))) fail('Use an approved HTTPS payment URL.'); return u.toString(); }
 export function imageURL(value) { if (!value) return ''; if (/^\/assets\/[a-z0-9-]+\.svg$/.test(value) || /^\/api\/images\/[a-f0-9]{24}$/.test(value)) return value; fail('Upload an image using the media library.'); }
+export function videoURL(value) {
+ if(!value)return '';
+ if(typeof value==='string'&&/^\/api\/images\/[a-f0-9]{24}$/.test(value))return value;
+ fail('Choose an uploaded MP4 or WebM video.');
+}
+export function sectionLink(input) {
+ const v=text(input||'',500);
+ if(!v||/^#[a-zA-Z0-9-]+$/.test(v))return v;
+ if(!/^https:\/\//i.test(v))fail('Use an HTTPS link or a section anchor such as #collection.');
+ try{return safeURL(v);}catch{fail('Use an HTTPS link or a section anchor such as #collection.');}
+}
+export function storeSections(input){
+ if(!Array.isArray(input)||input.length>24)fail('Use up to 24 storefront sections.');
+ const seen=new Set(),core=new Set();
+ return input.map(s=>{
+  if(!s||typeof s!=='object'||!Object.hasOwn(sectionTypes,s.type)||typeof s.id!=='string'||!/^[a-z0-9-]{1,48}$/.test(s.id)||seen.has(s.id))fail('Invalid storefront section.');
+  seen.add(s.id);
+  if(['hero','catalog','about'].includes(s.type)){
+   if(s.id!==s.type||core.has(s.type))fail('Use one of each standard storefront section.');
+   core.add(s.type);
+  }else if(classicSections.some(x=>x.id===s.id))fail('Invalid storefront section ID.');
+  const images=s.images??[],items=s.items??[];
+  if(!Array.isArray(images)||images.length>8||!Array.isArray(items)||items.length>8)fail('Use up to eight entries per section.');
+  const image=imageURL(s.image||''),video=videoURL(s.video||'');
+  return {id:s.id,type:s.type,hidden:s.hidden===true,title:text(s.title||'',180),text:text(s.text||'',3200),image,video,
+   alt:text(s.alt||'',180),images:images.filter(Boolean).map(imageURL),button:text(s.button||'',70),link:sectionLink(s.link),
+   align:['left','center','right'].includes(s.align)?s.align:'left',tone:['plain','soft','accent'].includes(s.tone)?s.tone:'plain',
+   items:items.map(x=>({title:text(x?.title||'',180),text:text(x?.text||'',1000)}))};
+ });
+}
 export const defaults = () => ({
   name: 'Your store', tagline: 'Good things. Made for you.', heroTitle: 'Your next favourite starts here.', heroText: 'Discover a thoughtful collection, selected with care. Shop your favourites and find something new.', heroButton: 'Explore the collection', heroImage: '/assets/collection.svg', logo: '', announcement: 'Welcome to our store • Shop something special',
   accent: '#9c7035', background: '#f8f5ef', ink: '#332a24', font: 'serif', layout: 'editorial', currency: 'JMD',
   catalogTitle: 'Explore the collection', navShopLabel: 'Shop', navAboutLabel: 'Our story', footerText: 'Thank you for supporting our business.', customPages: [], aboutTitle: 'A little about us', about: 'We believe in good products and even better service.', contactEmail: '', phone: '', address: '', instagram: '',
   shipping: 'Contact us for delivery areas and estimated delivery times.', returns: 'Contact the seller before returning an item. Your statutory rights remain unaffected.', privacy: 'We use your order details to fulfil your purchase and provide customer service. Contact us about access, correction or deletion of your personal information.', terms: 'Orders are subject to stock availability. Please check product descriptions and delivery details before ordering.',
   shippingFee: 0, freeShippingOver: 0, taxBps: 0, taxLabel: 'Tax', pickup: true, shippingEnabled: true, showAbout: true, showHero: true,
-  categories: ['All products'], defaultPayment: '', published: false
+  categories: ['All products'], defaultPayment: '', published: false, bagLabel:'Bag', heroAlt:'', grid:'standard', headerStyle:'split'
 });
 export function settings(input, current) {
  const out = {...current};
- for (const k of ['name','tagline','heroTitle','heroButton','aboutTitle','announcement','taxLabel','catalogTitle','navShopLabel','navAboutLabel','footerText']) if (k in input) out[k] = text(input[k], 180, k === 'name' ? 1 : 0);
+ for (const k of ['name','tagline','heroTitle','heroButton','aboutTitle','announcement','taxLabel','catalogTitle','navShopLabel','navAboutLabel','footerText','bagLabel','heroAlt','searchLabel']) if (k in input) out[k] = text(input[k], 180, k === 'name' ? 1 : 0);
  for (const k of ['heroText','about','shipping','returns','privacy','terms','address']) if (k in input) out[k] = text(input[k], 6000);
  for (const k of ['contactEmail','phone','instagram']) if (k in input) out[k] = text(input[k], 200);
  if (out.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.contactEmail)) fail('Enter a valid contact email.');
  for (const k of ['accent','background','ink']) if (k in input) { if (!/^#[0-9a-f]{6}$/i.test(input[k])) fail('Invalid theme colour.'); out[k] = input[k]; }
  for (const k of ['logo','heroImage']) if (k in input) out[k] = imageURL(input[k]);
- for (const [k, values] of Object.entries({font:['serif','sans'],layout:['editorial','minimal'],currency:['JMD','USD']})) if (k in input) { if (!values.includes(input[k])) fail('Invalid setting.'); out[k] = input[k]; }
+ for (const [k, values] of Object.entries({font:['serif','sans'],layout:['editorial','minimal','market','runway','boutique'],currency:['JMD','USD'],grid:['compact','standard','large'],headerStyle:['split','centered']})) if (k in input) { if (!values.includes(input[k])) fail('Invalid setting.'); out[k] = input[k]; }
+ if('template' in input&&input.template!==(current.template||'classic'))fail('Your starter template is locked. You can still edit the store design.',409);
+ if('sections' in input)out.sections=storeSections(input.sections);
  for (const k of ['shippingFee','freeShippingOver']) if (k in input) out[k] = integer(input[k]);
  if ('taxBps' in input) out.taxBps = integer(input.taxBps, 10000);
  for (const k of ['published','pickup','shippingEnabled','showAbout','showHero']) if (k in input) { if (typeof input[k] !== 'boolean') fail('Invalid toggle.'); out[k] = input[k]; }
@@ -37,6 +70,10 @@ export function settings(input, current) {
 }
 export function product(input) {
  const p = { name: text(input.name,180,1), description: text(input.description || '',6000), category: text(input.category || 'General',60), sku: text(input.sku || '',100), price: integer(input.price), stock: integer(input.stock,1000000), image: imageURL(input.image || ''), active: input.active !== false, featured: input.featured === true, type: input.type === 'service' ? 'service' : 'physical', variants: [] };
+ p.video=videoURL(input.video||'');
+ p.gallery=input.gallery??[];
+ if(!Array.isArray(p.gallery)||p.gallery.length>8)fail('Use up to eight additional product images.');
+ p.gallery=[...new Set(p.gallery.filter(Boolean).map(imageURL))];
  if (input.variants) { if (!Array.isArray(input.variants) || input.variants.length > 30) fail('Up to 30 variants.'); p.variants = input.variants.map(v => ({id: text(v.id || id(),60,1), name: text(v.name,100,1), price: integer(v.price), stock: integer(v.stock,1000000)})); if (new Set(p.variants.map(v=>v.id)).size !== p.variants.length) fail('Duplicate variant.'); }
  return p;
 }

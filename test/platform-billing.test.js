@@ -39,7 +39,7 @@ test('developer, consultations, isolated QA and rental gateways enforce their bo
  }
  async function login(email,password){const r=await req('/api/login','POST',{email,password});assert.equal(r.status,200);const auth={cookie:r.cookie};const x=await req('/api/session','GET',null,auth);return {...auth,...x.body};}
  const op=await login('operator@example.com','strong-operator-password');
- const seed=async slug=>{const email=slug+'@example.com',pw='billing-test-password';assert.equal((await req('/api/signup','POST',{name:slug,email,password:pw,slug,acceptTerms:true})).status,201);return login(email,pw);};
+ const seed=async slug=>{const email=slug+'@example.com',pw='billing-test-password';assert.equal((await req('/api/signup','POST',{name:slug,email,password:pw,slug,acceptTerms:true,template:"beauty"})).status,201);return login(email,pw);};
  const fy=await seed('fygaro-rental-shop'),pp=await seed('paypal-rental-shop');
  assert.equal((await req('/api/operator/overview')).status,401);
  assert.equal((await req('/api/operator/overview','GET',null,fy)).status,403);

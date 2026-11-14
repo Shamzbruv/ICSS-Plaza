@@ -12,7 +12,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base='http://127.0.0.1:'+server.address().port;
 after(async()=>{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});});
 async function req(path,method='GET',body,auth={}){const r=await fetch(base+path,{method,headers:{Origin:origin,'Content-Type':'application/json',...(auth.cookie?{Cookie:auth.cookie}:{}),...(auth.csrf?{'X-CSRF-Token':auth.csrf}:{})},...(body?{body:JSON.stringify(body)}:{})});let data;try{data=await r.json();}catch{data={};}return {status:r.status,data,cookie:r.headers.get('set-cookie')?.split(';')[0],headers:r.headers};}
-async function signup(slug){const r=await req('/api/signup','POST',{email:slug+'@example.com',password:'a-secure-password-123',name:slug,slug,acceptTerms:true});assert.equal(r.status,201,JSON.stringify(r.data));const a={cookie:r.cookie};const s=await req('/api/session','GET',null,a);a.csrf=s.data.csrf;a.tenant=s.data.tenants[0];return a;}
+async function signup(slug,template='beauty'){const r=await req('/api/signup','POST',{email:slug+'@example.com',password:'a-secure-password-123',name:slug,slug,template,acceptTerms:true});assert.equal(r.status,201,JSON.stringify(r.data));const a={cookie:r.cookie};const s=await req('/api/session','GET',null,a);a.csrf=s.data.csrf;a.tenant=s.data.tenants[0];return a;}
 let alice,bob,product,oid,token;
 test('account creation gives an isolated draft trial with secure session',async()=>{
  alice=await signup('alice-store');bob=await signup('bob-store');assert.notEqual(alice.tenant.id,bob.tenant.id);assert.equal(alice.tenant.settings.published,false);assert.equal(alice.tenant.status,'trial');assert.ok(alice.cookie.startsWith('plaza_session='));
@@ -163,4 +163,46 @@ test('brand metadata, manifest icons and shared artwork are served with browser-
  for(const icon of [...manifest.icons,{src:'/assets/brand/apple-touch-icon.png',sizes:'180x180'},{src:'/assets/brand/social-preview.png',sizes:'1200x630'}]){const r=await fetch(base+icon.src);assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'image/png');const data=Buffer.from(await r.arrayBuffer());assert.equal(data.subarray(1,4).toString(),'PNG');assert.equal(data.readUInt32BE(16)+'x'+data.readUInt32BE(20),icon.sizes);}
  const icon=await fetch(base+'/favicon.ico');assert.equal(icon.headers.get('content-type'),'image/x-icon');const bytes=Buffer.from(await icon.arrayBuffer());assert.equal(bytes.readUInt16LE(2),1);assert.equal(bytes.readUInt16LE(4),3);
  const head=await fetch(base+'/assets/brand/logo-horizontal.png',{method:'HEAD'});assert.equal(head.status,200);assert.equal(head.headers.get('content-type'),'image/png');assert.equal((await head.arrayBuffer()).byteLength,0);
+});
+
+test('template signup, immutable starter selection and draft publication protect live storefront design',async()=>{
+ const signupData={email:'missing-template@example.com',password:'test-password-only',name:'No template',slug:'missing-template',acceptTerms:true};
+ assert.equal((await req('/api/signup','POST',signupData)).status,400);
+ assert.equal((await req('/api/signup','POST',{...signupData,template:'bad-template'})).status,400);
+ const merchant=await signup('studio-wholesale','wholesale'),tenant=merchant.tenant,path='/api/admin/'+tenant.id,live='/api/stores/'+tenant.slug;
+ assert.equal(tenant.settings.template,'wholesale');
+ assert.ok(tenant.settings.categories.includes('Pantry'));
+ assert.equal((await req(path+'/settings','PUT',{template:'fashion'},merchant)).status,409);
+ assert.equal((await req(path+'/sample-products','POST',{},merchant)).status,201);
+ const samples=(await req(path,'GET',null,merchant)).data.products;
+ assert.ok(samples.length>=2&&samples.every(x=>!x.active));
+ assert.equal((await req(path+'/sample-products','POST',{},merchant)).status,409);
+ assert.equal((await req(path+'/design','PUT',{mode:'save',design:{heroTitle:'Cannot write this'}},bob)).status,404);
+ const image=(await req(path+'/images','POST',{name:'design.png',data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKPwAAAAASUVORK5CYII='},merchant)).data;
+ const video=(await req(path+'/images','POST',{name:'product.mp4',data:'data:video/mp4;base64,'+Buffer.from('0000ftypisom0000extra').toString('base64')},merchant)).data;
+ assert.ok(image.url&&video.url);
+ assert.equal((await req(path+'/design','PUT',{mode:'save',design:{logo:video.url}},merchant)).status,400);
+ assert.equal((await req(path+'/design','PUT',{mode:'save',design:{sections:[{id:'offer',type:'promo',title:'Unsafe',link:'javascript:alert(1)'}]}},merchant)).status,400);
+ assert.equal((await req(path+'/products','POST',{name:'Wrong file',price:100,stock:1,video:image.url},merchant)).status,400);
+ assert.equal((await req(path+'/products','POST',{name:'Case of canned juice',price:5000,stock:10,video:video.url,gallery:[image.url]},merchant)).status,201);
+ assert.equal((await req(path+'/gateways/bank','PUT',{instructions:'Use the reference at checkout when paying by transfer.',environment:'live'},merchant)).status,200);
+ const design={heroTitle:'Wholesale prices for all',sections:[{id:'gallery',type:'gallery',title:'See inside',images:[image.url]},{id:'catalog',type:'catalog'}]};
+ assert.equal((await req(path+'/design','PUT',{mode:'save',design},merchant)).status,200);
+ assert.equal((await req(live)).status,404);
+ assert.equal((await req(path+'/settings','PUT',{address:'Kingston, Jamaica',defaultPayment:'bank',published:true,vendorAcknowledgement:true},merchant)).status,200);
+ let customer=(await req(live)).data;
+ assert.equal(customer.settings.heroTitle,design.heroTitle);
+ assert.equal(customer.settings.sections[0].images[0],image.url);
+ assert.equal(customer.products.length,1);assert.equal(customer.products[0].video,video.url);
+ const clip=await fetch(base+video.url,{headers:{Range:'bytes=4-7'}});
+ assert.equal(clip.status,206);assert.equal(await clip.text(),'ftyp');
+ const privatePhoto=(await req(path+'/images','POST',{name:'private.png',data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKPwAAAAASUVORK5CYII='},merchant)).data;
+ assert.equal((await req(path+'/design','PUT',{mode:'save',design:{heroTitle:'Private revamp',heroImage:privatePhoto.url}},merchant)).status,200);
+ assert.equal((await req(privatePhoto.url)).status,404);
+ assert.equal((await req(privatePhoto.url,'GET',null,merchant)).status,200);
+ customer=(await req(live)).data;
+ assert.equal(customer.settings.heroTitle,design.heroTitle);assert.ok(!Object.hasOwn(customer.settings,'designDraft'));
+ assert.equal((await req(path+'/design','PUT',{mode:'apply',design:{}},merchant)).status,200);
+ assert.equal((await req(live)).data.settings.heroTitle,'Private revamp');
+ assert.equal((await req(privatePhoto.url)).status,200);
 });

@@ -78,7 +78,7 @@ for (const hasDomain of [true, false]) test(`production boots with no BASE_URL/k
   assert.equal(health.status,200); assert.deepEqual(await health.json(),{ok:true});
   const browserOrigin=hasDomain?'https://plaza-test.up.railway.app':`https://127.0.0.1:${port}`;
   const landing=await fetch(`http://127.0.0.1:${port}/`);assert.equal(landing.status,200);
-  const signup=await fetch(`http://127.0.0.1:${port}/api/signup`,{method:'POST',headers:{Origin:browserOrigin,'Content-Type':'application/json'},body:JSON.stringify({email:'smoke@example.com',password:'secure-smoke-password',name:'Smoke store',slug:'smoke-store',acceptTerms:true})});
+  const signup=await fetch(`http://127.0.0.1:${port}/api/signup`,{method:'POST',headers:{Origin:browserOrigin,'Content-Type':'application/json'},body:JSON.stringify({email:'smoke@example.com',password:'secure-smoke-password',name:'Smoke store',slug:'smoke-store',acceptTerms:true,template:"beauty"})});
   assert.equal(signup.status,201);assert.match(signup.headers.get('set-cookie'),/; Secure/);
   const hostile=await fetch(`http://127.0.0.1:${port}/api/login`,{method:'POST',headers:{Origin:'https://attacker.example','X-Forwarded-Host':'attacker.example','Content-Type':'application/json'},body:'{}'});assert.equal(hostile.status,403);
   assert.match(readFileSync(join(dataDir,'.encryption-key'),'utf8').trim(),/^[a-f0-9]{64}$/);

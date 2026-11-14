@@ -5,11 +5,11 @@ import {gateways} from '../src/payments.js';
 // A template smoke test, not a substitute for browser layout/accessibility QA.
 // It boots the actual front-end module with its platform boundary mocked.
 async function boot(path,search='',routes={}){
- const app={innerHTML:''},modal={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;}},toast={style:{},textContent:''},events=new Map(),storage=new Map();
+ const app={innerHTML:'',addEventListener(){},querySelector(){return null;},querySelectorAll(){return [];}},modal={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;}},toast={style:{},textContent:''},events=new Map(),storage=new Map();
  globalThis.document={title:'',querySelector:s=>s==='#app'?app:s==='#modal'?modal:toast,addEventListener:(k,v)=>events.set(k,v)};
  globalThis.location={pathname:path,search,origin:'https://plaza.example'};
  globalThis.localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
- globalThis.window={scrollTo(){}};
+ globalThis.window={scrollTo(){},addEventListener(){}};
  globalThis.history={replaceState(){}};const requests=[];
  globalThis.fetch=async (url,opts)=>{requests.push([url,opts?.method]);return new Response(JSON.stringify(routes[url]??(url==='/api/catalog'?{gateways}:url==='/api/session'?{user:null,tenants:[],csrf:''}:{})),{status:200});};
  await import('../public/app.js?test='+Math.random());
@@ -21,7 +21,7 @@ test('landing includes interactive demo, operator attribution, contact and accur
 });
 test('demo dashboard tabs render designer, policies, media, payments and settings',async()=>{
  const {app,events}=await boot('/demo');assert.match(app.innerHTML,/Demo playground/);assert.match(app.innerHTML,/Your store, step by step/);
- for(const [tab,expected] of [['appearance','Save store design'],['content','Additional store pages'],['payments','EzeePayments'],['settings','Default payment method'],['products','Botanical body oil'],['media','Your media library']]){await events.get('click')({target:{closest:()=>({dataset:{tab}})}});assert.ok(app.innerHTML.includes(expected),tab+' did not render');}
+ for(const [tab,expected] of [['appearance','Live storefront preview'],['content','Additional store pages'],['payments','EzeePayments'],['settings','Default payment method'],['products','Botanical body oil'],['media','Your media library']]){await events.get('click')({target:{closest:()=>({dataset:{tab}})}});assert.ok(app.innerHTML.includes(expected),tab+' did not render');}
 });
 test('demo storefront renders products and escaped custom content',async()=>{
  const {app}=await boot('/demo','?view=store');assert.match(app.innerHTML,/Everyday essentials/);assert.match(app.innerHTML,/Botanical body oil/);assert.match(app.innerHTML,/data-form|data-action="cart"/);assert.match(app.innerHTML,/data-policy="returns"/);
@@ -58,4 +58,11 @@ test('a developer can open Vendors from Subscriptions, including from the old ta
  assert.match(app.innerHTML,/Open vendor workspace/);
  assert.match(app.innerHTML,/Generate test login/);
  assert.ok(requests.some(([url,method])=>url==='/api/operator/vendors'&&method==='POST'));
+});
+
+test('signup advertises six starter templates with a full wholesale preview',async()=>{
+ const {app}=await boot('/signup');
+ assert.equal((app.innerHTML.match(/name="template"/g)||[]).length,6);
+ assert.match(app.innerHTML,/template choice is permanent/);
+ const example=await boot('/templates/wholesale');assert.match(example.app.innerHTML,/Stock up\. Shop local\./);assert.match(example.app.innerHTML,/Jamaican pantry staples/);assert.match(example.app.innerHTML,/Shop the aisles/);
 });
