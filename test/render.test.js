@@ -81,3 +81,13 @@ test('vendor inventory and customers are real workspaces, with orders and custom
  assert.match(support,/End support session/);
  assert.doesNotMatch(support,/data-tab="(?:customers|orders|billing|payments)"/);
 });
+
+test('developer can open all six template previews and vendor growth modules',async()=>{
+ const {app}=await boot('/developer','?tab=templates',{'/api/session':{user:{id:'operator'},operator:true}});
+ assert.match(app.innerHTML,/Storefront template library/);
+ assert.equal((app.innerHTML.match(/Open storefront preview/g)||[]).length,6);
+ for(const [tab,label] of [['discounts','Create discount'],['loyalty','Edit loyalty rules'],['quiz','Edit quiz rules'],['journal','Write article'],['emails','Edit or preview'],['reviews','No reviews yet']]){
+  const view=await boot('/demo','?tab='+tab);
+  assert.ok(view.app.innerHTML.includes(label),tab);
+ }
+});

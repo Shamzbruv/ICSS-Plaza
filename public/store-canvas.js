@@ -1,4 +1,4 @@
-import {renderStorefront,productShowcase,formatMoney,esc} from './storefront.js?v=studio-1';
+import {renderStorefront,productShowcase,formatMoney,esc} from './storefront.js?v=growth-1';
 
 const root=document.querySelector('#canvas-root'),dialog=document.querySelector('#canvas-dialog');
 const parentWindow=window.parent,origin=location.origin;

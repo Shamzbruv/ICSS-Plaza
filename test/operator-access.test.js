@@ -62,6 +62,10 @@ test('developer provisioning reserves the email and vendor support grants are bo
  assert.equal(qaGrant.status,201);
  const qaAdmin='/api/admin/'+qa.id,sample=(await req(qaAdmin,'GET',null,op,qaGrant.data.id)).data;
  assert.ok(sample.products.some(p=>p.sku==='QA-TOTE'));
+ const trialTools={value:{orders:2,percent:15,enabled:true}};
+ assert.equal((await req(qaAdmin+'/features/loyalty','PUT',trialTools,op,qaGrant.data.id)).status,200);
+ assert.equal((await req(qaAdmin+'/features/loyalty','PUT',trialTools,otherSession,qaGrant.data.id)).status,403);
+ assert.equal((await req(admin+'/features/loyalty','PUT',trialTools,op,grant)).status,403);
  const tote=sample.products.find(p=>p.sku==='QA-TOTE'),stockPath=qaAdmin+'/products/'+tote.id+'/stock',changeStock={quantities:[{id:'base',previous:tote.stock,stock:9}]};
  assert.equal((await req(stockPath,'PATCH',changeStock,a)).status,404);
  const adjusted=await req(stockPath,'PATCH',changeStock,op,qaGrant.data.id);

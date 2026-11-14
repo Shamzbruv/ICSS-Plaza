@@ -77,4 +77,11 @@ export function product(input) {
  if (input.variants) { if (!Array.isArray(input.variants) || input.variants.length > 30) fail('Up to 30 variants.'); p.variants = input.variants.map(v => ({id: text(v.id || id(),60,1), name: text(v.name,100,1), price: integer(v.price), stock: integer(v.stock,1000000)})); if (new Set(p.variants.map(v=>v.id)).size !== p.variants.length) fail('Duplicate variant.'); }
  return p;
 }
-export function totals(lines, s, delivery) { const subtotal = lines.reduce((a,x) => a + x.price*x.quantity, 0); const shipping = delivery === 'pickup' || (s.freeShippingOver && subtotal >= s.freeShippingOver) ? 0 : s.shippingFee; const tax = Math.round(subtotal*s.taxBps/10000); const total = subtotal+shipping+tax; integer(total,100000000,1); return {subtotal,shipping,tax,total}; }
+export function totals(lines,s,delivery,discount=0) {
+ const subtotal=lines.reduce((a,x)=>a+x.price*x.quantity,0);
+ const applied=Math.max(0,Math.min(discount,subtotal-1)),net=subtotal-applied;
+ const shipping=delivery==='pickup'||(s.freeShippingOver&&subtotal>=s.freeShippingOver)?0:s.shippingFee;
+ const tax=Math.round(net*s.taxBps/10000),total=net+shipping+tax;
+ integer(total,100000000,1);
+ return {subtotal,shipping,tax,total,...(applied?{discount:applied}:{})};
+}

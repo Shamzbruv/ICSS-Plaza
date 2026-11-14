@@ -76,7 +76,12 @@ export function operatorAccess({db,key,legacyEmail,audit,provision=null}){
  };
 }
 
-export function permitsSupport(action,method) {
+export function permitsSupport(action,method,testWorkspace=false) {
+ if(testWorkspace&&(
+   method==='PUT'&&/^features\/(discounts|loyalty|quiz|journal|emails|reviews\/[a-f0-9]{24})$/.test(action)||
+   method==='GET'&&action==='features/reviews'||
+   method==='POST'&&action==='features/email-preview'
+ ))return true;
  return method==='GET'&&(!action||action==='support-state')||
    method==='PUT'&&['settings','design'].includes(action)||
    method==='POST'&&['products','images','sample-products'].includes(action)||

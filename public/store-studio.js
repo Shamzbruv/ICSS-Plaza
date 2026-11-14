@@ -1,9 +1,9 @@
 import {templates,getTemplate,sectionTypes,exampleStore} from './store-templates.js?v=studio-1';
 import {designGroups,designKeys} from './store-design-fields.js?v=studio-1';
-import {esc,getSections} from './storefront.js?v=studio-1';
+import {esc,getSections} from './storefront.js?v=growth-1';
 
 const coreTypes=['hero','catalog','about'];
-const canvasURL='/store-canvas.html?v=studio-1';
+const canvasURL='/store-canvas.html?v=growth-1';
 const assetNames=['collection','serum','tote','mug','candle',...templates.map(t=>'template-'+t.id)];
 const attr=x=>esc(x);
 const own=Object.hasOwn;
@@ -71,7 +71,8 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
  function locate(){return value.sections.find(s=>s.id===selected);}
  function viewData(){
   const {designDraft,...published}=current().settings;
-  return { ...current(),settings:{...published,...value} };
+  const f=published.features||{},settings={...published,...value};
+  return { ...current(),settings,features:{quiz:f.quiz?.enabled?{...f.quiz,rules:f.quiz.rules.filter(r=>settings.categories.includes(r.category))}:null,journal:(f.journal||[]).filter(a=>a.published)} };
  }
  function send(type='render',target){
   app.querySelector('#studio-canvas')?.contentWindow?.postMessage({plazaStudio:true,type,target,store:viewData(),edit:!preview,trust:!isDemo(),selected},location.origin);

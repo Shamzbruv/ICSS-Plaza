@@ -1,9 +1,10 @@
-import {workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=vendor-1';
+import {featurePanel,featureDialog,featureRequest} from './vendor-features.js?v=growth-1';
+import {workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=growth-1';
 import {demoStore} from './demo-data.js';
-import {renderStorefront,productShowcase} from './storefront.js?v=studio-1';
-import {createStoreStudio,templateChooser,templatePage,studioMediaOptions} from './store-studio.js?v=studio-1';
+import {renderStorefront,productShowcase} from './storefront.js?v=growth-1';
+import {createStoreStudio,templateChooser,templatePage,studioMediaOptions} from './store-studio.js?v=growth-1';
 import {legalPages,policyVersion} from './legal.js?v=plaza-mail-1';
-import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=plaza-vendors-2';
+import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=growth-1';
 import {publicReportPage,reportReceipt,reportCase,reportQueue,operatorCase} from './trust-ui.js';
 const app=document.querySelector('#app'), modal=document.querySelector('#modal');
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -16,7 +17,8 @@ const studio=createStoreStudio({app,getState:()=>state,getSupport:()=>support,is
  openDashboard(mode){if(mode==='save-demo'){saveDemo();return;}goVendorTab('overview');},
  confirmPublish:publishDialog,async importProducts(){await adminMutation('sample-products','POST',{});toast('Hidden sample products added.');}
 });
-let example=false;
+let example=false,shopReviews=null,orderQuote=null;
+const growthTabs=['discounts','loyalty','quiz','reviews','journal','emails'];
 const demoKey='icss-plaza-demo-v1';
 const money=(cents,currency=state?.settings?.currency||store?.settings?.currency||'JMD')=>new Intl.NumberFormat('en-JM',{style:'currency',currency,maximumFractionDigits:2}).format(cents/100);
 const logo=()=>'<a class="logo" href="/" aria-label="ICSS Plaza home"><img src="/assets/brand/logo-horizontal.png" alt="ICSS Plaza — by iCreate Solutions &amp; Services" width="900" height="220"></a>';
@@ -47,7 +49,7 @@ function loadDemo(){let d=local.get(demoKey,null);if(!d||!d.settings||!Array.isA
 function saveDemo(){local.set(demoKey,state);}
 const tenantId=()=>state.id;
 async function refresh(){if(demo){saveDemo();return;}const r=await api('/api/admin/'+(support?.tenant||tenantId()));state={...r.tenant,...r};delete state.tenant;}
-const workspaceMode=()=>({support:!!support,demo});
+const workspaceMode=()=>({support:!!support,demo,testWorkspace:state?.slug==='plaza-test-workspace'});
 function goVendorTab(key){
  tab=workspaceTab(key,workspaceMode());
  history.replaceState(null,'',location.pathname+(tab==='overview'?'':'?tab='+encodeURIComponent(tab)));
@@ -95,7 +97,19 @@ function paymentsPanel(){return `<div class="note">Connect your own approved mer
 function mediaPanel(){return `<section class="panel"><h2>Your media library</h2><p>Upload product photos, logos, storefront artwork and short clips. PNG, JPEG and WebP up to 2 MB; MP4 and WebM up to 12 MB. Each store has room for 200 files and 100 MB.</p><label class="btn outline sm">+ Upload media<input class="hidden" type="file" data-upload accept="image/png,image/jpeg,image/webp,video/mp4,video/webm"></label></section><div class="media-grid">${state.images.map(i=>`<article class="media-card">${i.mime?.startsWith('video/')?`<video controls preload="metadata" src="${esc(i.url||'/api/images/'+i.id)}"></video>`:`<img src="${esc(i.url||'/api/images/'+i.id)}" alt="${esc(i.name)}">`}<p>${esc(i.name)}</p>${button('Delete','delete-image','outline sm',`data-id="${esc(i.id)}"`)}</article>`).join('')}</div>${state.images.length?'':`<div class="empty">${illustration('empty-media')}<p>Uploaded media will be available in the Store Designer and product editor.</p></div>`}`;}
 function ordersPanel(){return `<section class="panel"><h2>Orders</h2><p>The latest 500 orders appear here; the store export includes full history. Payments must be verified before fulfilment. Manual payment methods require checking your provider or bank account.</p><div class="table-scroll"><table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th></th></tr></thead><tbody>${state.orders.map(o=>`<tr><td>${esc(o.short_id||o.id.slice(0,10))}<p class="small">${new Date(o.created).toLocaleDateString()}</p></td><td>${esc(o.customer.name)}</td><td>${money(o.total,o.currency)}</td><td><span class="tag ${o.paid?'':'warn'}">${o.paid?'Paid':'Unverified'}</span></td><td>${esc(o.state)}</td><td>${button('View','order','outline sm',`data-id="${esc(o.id)}"`)}</td></tr>`).join('')}</tbody></table></div>${state.orders.length?'':`<div class="empty">${illustration('empty-orders')}<p>New orders will appear here.</p></div>`}</section>`;}
 function settingsPanel(){const s=state.settings;return `<form data-form="settings"><section class="panel"><h2>Delivery, tax & checkout</h2><div class="form-grid">${select('Store currency','currency',s.currency,[['JMD','JMD — Jamaican dollar'],['USD','USD — US dollar']])}${select('Default payment method','defaultPayment',s.defaultPayment,[['','Choose a method'],...state.gateways.filter(g=>g.enabled).map(g=>[g.provider||g.id,catalog.gateways.find(x=>x.id===(g.provider||g.id))?.name||g.name])])}${field('Flat delivery charge','shippingFee',s.shippingFee/100,'number')}${field('Free delivery from (0 disables)','freeShippingOver',s.freeShippingOver/100,'number')}${field('Tax percentage','taxPercent',s.taxBps/100,'number','Set only the tax you are required to collect. Prices exclude this configured tax.')}${field('Tax label','taxLabel',s.taxLabel)}${check('Offer store pickup','pickup',s.pickup)}${check('Offer delivery','shippingEnabled',s.shippingEnabled)}<div class="full">${field('Categories, separated with commas','categories',s.categories.join(', '))}</div></div><div class="form-error"></div><button class="btn" type="submit">Save settings</button></section></form><section class="panel"><h2>Your account & data</h2><p>${demo?'Sample data is stored only in this browser.':'Export your catalogue, settings, images and orders. Keep this file secure: it contains customer information.'}</p><div class="row" style="flex-wrap:wrap">${button('Export store data','export','outline sm')}${!demo?button('Change password','password','outline sm')+button('Cancel store rental','cancel-store','outline sm')+button('Request account deletion','delete-account','outline sm'):button('Reset demo','reset-demo','outline sm')}</div>${state.requests?.length?`<div class="note">Recent requests: ${state.requests.map(r=>esc(r.kind)).join(', ')}</div>`:''}</section>`;}
-function dashboard(){if(tab==='appearance'){studio.open();return;}const views={overview,products:productsPanel,inventory:()=>inventoryPanel(state),customers:()=>customersPanel(state.orders,money),policies:policiesPanel,content:contentPanel,media:mediaPanel,payments:paymentsPanel,orders:ordersPanel,settings:settingsPanel,billing:()=>'<section id="vendor-billing" class="panel"><p>Loading rental billing…</p></section>','vendor-cases':()=>reportQueue({reports:[]},'all',1,false)};shell((views[tab]||overview)());if(tab==='vendor-cases'&&!demo)void refreshVendorCases().catch(e=>toast(e.message));if(tab==='billing'&&!demo)void refreshBilling().catch(e=>toast(e.message));}
+function dashboard(){if(tab==='appearance'){studio.open();return;}const views={...Object.fromEntries(growthTabs.map(k=>[k,()=>featurePanel(k,state.settings,k==='reviews'&&demo?(state.orders.map(o=>o.review&&({...o.review,id:o.id,reference:o.short_id})).filter(Boolean)):shopReviews,money)])),overview,products:productsPanel,inventory:()=>inventoryPanel(state),customers:()=>customersPanel(state.orders,money),policies:policiesPanel,content:contentPanel,media:mediaPanel,payments:paymentsPanel,orders:ordersPanel,settings:settingsPanel,billing:()=>'<section id="vendor-billing" class="panel"><p>Loading rental billing…</p></section>','vendor-cases':()=>reportQueue({reports:[]},'all',1,false)};shell((views[tab]||overview)());if(tab==='reviews'&&!demo&&shopReviews===null)void refreshShopReviews().catch(e=>toast(e.message));if(tab==='vendor-cases'&&!demo)void refreshVendorCases().catch(e=>toast(e.message));if(tab==='billing'&&!demo)void refreshBilling().catch(e=>toast(e.message));}
+async function refreshShopReviews(){
+ if(demo){dashboard();return;}
+ const f=await api('/api/admin/'+state.id+'/features/reviews');
+ shopReviews=f.reviews;
+ if(tab==='reviews')dashboard();
+}
+function openShopFeature(id=''){showModal(featureDialog(tab,id,state.settings));}
+async function saveShopFeature(key,value){
+ if(demo){state.settings.features={...state.settings.features,[key]:value};saveDemo();}
+ else{const result=await api('/api/admin/'+state.id+'/features/'+key,'PUT',{value});state.settings.features=result.features;}
+ modal.close();dashboard();toast('Saved.');
+}
 async function refreshVendorCases(){const data=await api('/api/vendor/reports');const el=document.querySelector('#vendor-case-queue');if(tab==='vendor-cases'&&el)el.outerHTML=reportQueue(data,'all',1,false);}
 const reportLink=(slug,ref='')=>'/report?store='+encodeURIComponent(slug)+(ref?'&order='+encodeURIComponent(ref):'');
 const cartKey=()=>`icss-cart-${demo?'demo':store.slug}`;
@@ -104,15 +118,37 @@ function saveCart(lines){local.set(cartKey(),lines);}
 function resolvedCart(){return cart().map(l=>{const p=store.products.find(p=>p.id===l.productId);if(!p)return null;const v=l.variantId?p.variants.find(v=>v.id===l.variantId):p;if(!v)return null;return {...l,product:p,name:p.name+(v!==p?' — '+v.name:''),price:v.price,stock:v.stock};}).filter(Boolean);}
 function renderStore(policy=''){
  const banner=example?templatePage(store.slug).toolbar:demo?`<div class="banner"><span>Demo storefront · No real payments. Use sample information only.</span><a class="btn sm" href="/demo">← Edit this demo</a></div>`:'';
- app.innerHTML=banner+renderStorefront(store,{trust:!demo&&!example,policy,search,category,sort,bag:example?0:cart().reduce((n,i)=>n+i.quantity,0),basePath:example?'/templates/'+store.slug:demo?'/demo?view=store':undefined});
+ const f=store.settings.features,shown=demo&&f?{...store,features:{quiz:f.quiz?.enabled?f.quiz:null,journal:(f.journal||[]).filter(x=>x.published)},reviews:store.orders.map(o=>o.review).filter(r=>r?.status==='published')}:store;
+ app.innerHTML=banner+renderStorefront(shown,{trust:!demo&&!example,policy,search,category,sort,bag:example?0:cart().reduce((n,i)=>n+i.quantity,0),basePath:example?'/templates/'+store.slug:demo?'/demo?view=store':undefined});
  document.title=store.settings.name+' | ICSS Plaza';
 }
 function previewStore(){if(!demo)history.replaceState(null,'',location.pathname+'?tab=appearance&view=preview');studio.open(true);}
 function productDialog(pid){const p=store.products.find(p=>p.id===pid&&p.active);if(!p)return;showModal(`<div class="split">${productShowcase(p)}<div><span class="tag">${esc(p.category)}</span><h2 style="margin-top:15px">${esc(p.name)}</h2><p class="preline">${esc(p.description)}</p><form data-form="add-cart" data-id="${esc(p.id)}">${p.variants.length?select('Choose an option','variantId','',p.variants.map(v=>[v.id,`${v.name} — ${money(v.price,store.settings.currency)} (${v.stock} available)`])):`<p>${money(p.price,store.settings.currency)} · ${p.stock} available</p>`}${example?'<p class="small">Template preview · Checkout is disabled.</p>':field('Quantity','quantity',1,'number')+'<div class="form-error"></div><button class="store-btn" type="submit">Add to bag +</button>'}</form></div></div>`);}
 function cartDialog(){const lines=resolvedCart();showModal(`<h2>Your bag</h2>${lines.map((l,i)=>`<div class="cart-line"><img src="${esc(l.product.image||'/assets/collection.svg')}" alt=""><div class="details"><strong>${esc(l.name)}</strong><p style="margin:5px 0">${money(l.price,store.settings.currency)}</p></div><input aria-label="Quantity for ${esc(l.name)}" type="number" min="1" max="99" value="${l.quantity}" data-cart-quantity="${i}"><button data-action="remove-cart" data-index="${i}" aria-label="Remove ${esc(l.name)}">×</button></div>`).join('')}${lines.length?`<div class="order-total"><strong>Subtotal</strong><strong>${money(lines.reduce((a,l)=>a+l.price*l.quantity,0),store.settings.currency)}</strong></div><p>Delivery and configured taxes are calculated at checkout.</p>${button('Continue to checkout →','checkout')}`:`${illustration('empty-cart')}<p>Your bag is waiting for something good.</p>`}`);}
-function checkoutDialog(){if(!demo&&store.checkoutBlocked){toast('This store is not accepting new orders right now.');return;}const s=store.settings,lines=resolvedCart();if(!lines.length)return cartDialog();const subtotal=lines.reduce((a,l)=>a+l.price*l.quantity,0);const tax=Math.round(subtotal*s.taxBps/10000);const shipping=s.freeShippingOver&&subtotal>=s.freeShippingOver?0:s.shippingFee;
+function rewardProof(input){
+ if(!input)return null;
+ try{
+  const u=new URL(input),p=new URLSearchParams(u.hash.slice(1));
+  if(u.origin!==location.origin||u.pathname!=='/s/'+store.slug||!p.get('order')||!p.get('key'))throw Error();
+  return {id:p.get('order'),token:p.get('key')};
+ }catch{throw Error('Paste a private order link from this storefront.');}
+}
+function rewardRequest(data){
+ if(!store.features?.discounts&&!store.features?.loyalty)return {};
+ const proof=rewardProof(data.loyaltyLink);
+ return {discountCode:data.discountCode?.trim()||'',loyaltyReward:!!proof,...(proof?{loyaltyProof:proof}:{})};
+}
+async function applyOrderQuote(form){
+ const data=formData(form),request={lines:cart(),delivery:data.delivery,customer:{email:data.email},...rewardRequest(data)};
+ const quote=await api('/api/stores/'+store.slug+'/quote','POST',request);
+ orderQuote={total:quote.total,key:JSON.stringify(request)};
+ for(const [key,text] of Object.entries({'shipping-total':money(quote.shipping,store.settings.currency),'checkout-total':money(quote.total,store.settings.currency),'checkout-tax':money(quote.tax,store.settings.currency),'checkout-discount':quote.discount?'−'+money(quote.discount,store.settings.currency):money(0,store.settings.currency)})){const el=form.querySelector('#'+key);if(el)el.textContent=text;}
+ return request;
+}
+function checkoutDialog(){orderQuote=null;if(!demo&&store.checkoutBlocked){toast('This store is not accepting new orders right now.');return;}const s=store.settings,lines=resolvedCart();if(!lines.length)return cartDialog();const subtotal=lines.reduce((a,l)=>a+l.price*l.quantity,0);const tax=Math.round(subtotal*s.taxBps/10000);const shipping=s.freeShippingOver&&subtotal>=s.freeShippingOver?0:s.shippingFee;
  const gs=demo?state.gateways.filter(g=>g.enabled).map(g=>({...g,id:g.provider||g.id,name:catalog.gateways.find(x=>x.id===(g.provider||g.id))?.name||g.name})):store.gateways;
- showModal(`<h2>${demo?'Try a sample checkout':'Checkout'}</h2>${demo?'<div class="note">Use fictional details. No payment will be taken and no real order will be sent.</div>':''}<form data-form="checkout">${field('Full name','name',demo?'Demo Customer':'')}${field('Email','email',demo?'sample@example.com':'','email')}${field('Phone','phone',demo?'0000000000':'')}${select('Delivery method','delivery',s.shippingEnabled?'shipping':'pickup',[[...(s.shippingEnabled?['shipping','Delivery']:[])],[...(s.pickup?['pickup','Pickup']:[])]].filter(x=>x.length))}${area('Delivery address (required for delivery)','address',demo?'Demo address, Jamaica':'')}${select('Payment method','gateway',s.defaultPayment,gs.map(g=>[g.id,g.name+(g.mode==='manual'?' — manual verification':'')]))}<div class="order-total"><span>Subtotal</span><strong>${money(subtotal,s.currency)}</strong></div><div class="order-total"><span>${esc(s.taxLabel)} (${s.taxBps/100}%)</span><strong>${money(tax,s.currency)}</strong></div><div class="order-total"><span>Delivery</span><strong id="shipping-total">${money(s.shippingEnabled?shipping:0,s.currency)}</strong></div><div class="order-total"><strong>Total</strong><strong id="checkout-total" data-subtotal="${subtotal+tax}" data-shipping="${shipping}">${money(subtotal+tax+(s.shippingEnabled?shipping:0),s.currency)}</strong></div><p>Seller: ${esc(s.name)}. ${demo?'Sample transaction.':'You are buying from this independent vendor. Contact them about delivery, returns or refunds. Plaza’s rental refund policy does not apply.'}</p><label class="field check"><input type="checkbox" name="acceptTerms" required><span>I accept this seller’s <button class="back-link" type="button" data-action="checkout-policy" data-id="terms">sales terms</button>, <button class="back-link" type="button" data-action="checkout-policy" data-id="shipping">delivery</button> and <button class="back-link" type="button" data-action="checkout-policy" data-id="returns">returns policy</button> and have read the <button class="back-link" type="button" data-action="checkout-policy" data-id="privacy">privacy notice</button>.</span></label><div class="form-error"></div><button class="btn" type="submit">${demo?'Place sample order':'Place order & continue'} →</button></form>`);
+ showModal(`<h2>${demo?'Try a sample checkout':'Checkout'}</h2>${demo?'<div class="note">Use fictional details. No payment will be taken and no real order will be sent.</div>':''}<form data-form="checkout">${field('Full name','name',demo?'Demo Customer':'')}${field('Email','email',demo?'sample@example.com':'','email')}${field('Phone','phone',demo?'0000000000':'')}${select('Delivery method','delivery',s.shippingEnabled?'shipping':'pickup',[[...(s.shippingEnabled?['shipping','Delivery']:[])],[...(s.pickup?['pickup','Pickup']:[])]].filter(x=>x.length))}${area('Delivery address (required for delivery)','address',demo?'Demo address, Jamaica':'')}${select('Payment method','gateway',s.defaultPayment,gs.map(g=>[g.id,g.name+(g.mode==='manual'?' — manual verification':'')]))}
+ ${!demo&&(store.features?.discounts||store.features?.loyalty)?`<details><summary>Discount or loyalty reward</summary>${store.features.discounts?field('Discount code','discountCode'):''}${store.features.loyalty?field('Link to a previous fulfilled order','loyaltyLink','','url','Get ${store.features.loyalty.percent}% off after ${store.features.loyalty.orders} fulfilled paid orders. Use the same email as your previous order.'):''}${button('Apply and update total','order-quote','outline sm','type="button"')}</details><div class="order-total"><span>Discount</span><strong id="checkout-discount">${money(0,s.currency)}</strong></div>`:''}<div class="order-total"><span>Subtotal</span><strong>${money(subtotal,s.currency)}</strong></div><div class="order-total"><span>${esc(s.taxLabel)} (${s.taxBps/100}%)</span><strong id="checkout-tax">${money(tax,s.currency)}</strong></div><div class="order-total"><span>Delivery</span><strong id="shipping-total">${money(s.shippingEnabled?shipping:0,s.currency)}</strong></div><div class="order-total"><strong>Total</strong><strong id="checkout-total" data-subtotal="${subtotal+tax}" data-shipping="${shipping}">${money(subtotal+tax+(s.shippingEnabled?shipping:0),s.currency)}</strong></div><p>Seller: ${esc(s.name)}. ${demo?'Sample transaction.':'You are buying from this independent vendor. Contact them about delivery, returns or refunds. Plaza’s rental refund policy does not apply.'}</p><label class="field check"><input type="checkbox" name="acceptTerms" required><span>I accept this seller’s <button class="back-link" type="button" data-action="checkout-policy" data-id="terms">sales terms</button>, <button class="back-link" type="button" data-action="checkout-policy" data-id="shipping">delivery</button> and <button class="back-link" type="button" data-action="checkout-policy" data-id="returns">returns policy</button> and have read the <button class="back-link" type="button" data-action="checkout-policy" data-id="privacy">privacy notice</button>.</span></label><div class="form-error"></div><button class="btn" type="submit">${demo?'Place sample order':'Place order & continue'} →</button></form>`);
 }
 function variantRow(v={id:uid(),name:'',price:0,stock:0}){return `<div class="variant-row" data-variant-id="${esc(v.id)}"><input aria-label="Variant name" data-v-name placeholder="Size / colour" value="${esc(v.name)}"><input aria-label="Variant price" data-v-price type="number" step="0.01" min="0" value="${v.price/100}"><input aria-label="Variant stock" data-v-stock type="number" min="0" value="${v.stock}"><button type="button" data-action="remove-variant" aria-label="Remove variant">×</button></div>`;}
 function productMedia(name,value,label,type='image'){return `<div class="studio-media-field"><label class="field">${esc(label)}${studioMediaOptions(state.images,type,value,label,name)}</label><label class="studio-upload">Upload ${type}<input type="file" data-product-upload="${name}" accept="${type==='video'?'video/mp4,video/webm':'image/png,image/jpeg,image/webp'}"></label></div>`;}
@@ -125,7 +161,7 @@ async function refreshBilling(){
 }
 async function operatorPage(target=devTab,updateURL=false){
  if(!session.operator){
-   app.innerHTML=nav()+`<main class="wrap trust-page"><div class="dev-hero"><div class="eyebrow">ICSS Plaza · Operator access</div><h1>Developer console</h1><p>${session.user?'This account is not authorised to manage the platform.':'Sign in with your Plaza operator account.'}</p><div class="row trust-actions">${session.user?button('Sign out','logout','outline'):'<a class="btn" href="/login?next=developer">Operator sign-in →</a>'}</div></div></main>`+footer();return;
+   app.innerHTML=nav()+`<main class="wrap trust-page"><div class="dev-hero"><div class="eyebrow">ICSS Plaza · Operator access</div><h1>Developer console</h1><p>${session.user?'This account is not authorised to manage the platform.':'Sign in with your Plaza operator account.'}</p><div class="row trust-actions">${session.user?button('Sign out','logout','outline'):`<a class="btn" href="/login?next=${target==='templates'?'templates':'developer'}">Operator sign-in →</a>`}</div></div></main>`+footer();return;
  }
  const load=++devLoad,data={...devData};
  let trustHTML='';
@@ -171,8 +207,18 @@ function download(data,name){const blob=new Blob([JSON.stringify(data,null,2)],{
 document.addEventListener('submit',async e=>{
  const form=e.target;if(!form.matches('[data-form]'))return;e.preventDefault();const kind=form.dataset.form,data=formData(form),submit=form.querySelector('[type=submit]');if(submit)submit.disabled=true;
  try{
- if(['login','signup','reset'].includes(kind)){await api('/api/'+kind,'POST',data);if(kind==='reset'){toast('Password updated. Please sign in.');location.href='/login';}else location.href=kind==='signup'?'/admin?tab=appearance':kind==='login'&&new URLSearchParams(location.search).get('next')==='developer'?'/developer':'/admin';return;}
+ if(['login','signup','reset'].includes(kind)){await api('/api/'+kind,'POST',data);if(kind==='reset'){toast('Password updated. Please sign in.');location.href='/login';}else location.href=kind==='signup'?'/admin?tab=appearance':kind==='login'&&new URLSearchParams(location.search).get('next')==='templates'?'/developer?tab=templates':kind==='login'&&new URLSearchParams(location.search).get('next')==='developer'?'/developer':'/admin';return;}
  if(kind==='content'){data.customPages=[...form.querySelectorAll('.custom-page')].map(p=>({title:p.querySelector('[name=pageTitle]').value,content:p.querySelector('[name=pageContent]').value}));delete data.pageTitle;delete data.pageContent;await saveSettings(data);return;}
+ if(kind==='shop-feature'){
+  await saveShopFeature(form.dataset.key,featureRequest(form.dataset.key,form.dataset.id,data,state.settings.features,uid));return;
+ }
+ if(kind==='submit-review'){
+  const saved=local.get('icss-order-'+store.slug,null);
+  const token=form.dataset.id===saved?.id?saved.token:null;
+  if(!token)throw Error('Reopen the private link to your order.');
+  await api('/api/orders/'+form.dataset.id+'/review','POST',{token,rating:Number(data.rating),name:data.name,comment:data.comment});
+  modal.close();toast('Review submitted for approval.');return;
+ }
  if(kind==='vendor-policies'){await saveSettings(data);return;}
  if(kind==='vendor-stock'){
   const quantities=[...form.querySelectorAll('[data-stock-id]')].map(x=>({id:x.dataset.stockId,previous:Number(x.dataset.previous),stock:x.valueAsNumber}));
@@ -204,9 +250,11 @@ document.addEventListener('submit',async e=>{
  const lines=resolvedCart();let result;
  if(demo){const subtotal=lines.reduce((a,l)=>a+l.price*l.quantity,0),s=store.settings;const shipping=data.delivery==='pickup'||(s.freeShippingOver&&subtotal>=s.freeShippingOver)?0:s.shippingFee,tax=Math.round(subtotal*s.taxBps/10000);for(const l of lines){const p=state.products.find(p=>p.id===l.productId),v=l.variantId?p.variants.find(v=>v.id===l.variantId):p;if(l.quantity>v.stock)throw Error('A sample product has insufficient stock.');}for(const l of lines){const p=state.products.find(p=>p.id===l.productId),v=l.variantId?p.variants.find(v=>v.id===l.variantId):p;v.stock-=l.quantity;}const o={id:uid(),short_id:'DEMO-'+uid().slice(0,6),total:subtotal+tax+shipping,subtotal,tax,shipping,currency:s.currency,customer:{name:data.name,email:data.email,phone:data.phone,address:data.address},lines:lines.map(({product,...l})=>l),gateway:data.gateway,delivery:data.delivery,state:'new',paid:false,created:Date.now()};state.orders.unshift(o);saveDemo();result={order:o};store=state;
  }else{
- const request={customer:{name:data.name,email:data.email,phone:data.phone,address:data.address},lines:cart(),gateway:data.gateway,delivery:data.delivery,acceptTerms:true};
- const requestKey=JSON.stringify(request),old=local.get('icss-checkout-'+store.slug,null);const pending=old?.requestKey===requestKey?old:{requestKey,idempotency:uid(),orderToken:uid()+uid()};local.set('icss-checkout-'+store.slug,pending);
- result=await api('/api/stores/'+store.slug+'/orders','POST',{...request,idempotency:pending.idempotency,orderToken:pending.orderToken});local.set('icss-order-'+store.slug,{id:result.order.id,token:result.token});local.remove('icss-checkout-'+store.slug);
+ const reward=rewardRequest(data),quoteData={lines:cart(),delivery:data.delivery,customer:{email:data.email},...reward};
+ if((reward.discountCode||reward.loyaltyReward||orderQuote)&&orderQuote?.key!==JSON.stringify(quoteData)){await applyOrderQuote(form);throw Error('The total is updated. Review it and place your order.');}
+ const request={customer:{name:data.name,email:data.email,phone:data.phone,address:data.address},lines:cart(),gateway:data.gateway,delivery:data.delivery,acceptTerms:true,...reward,...(orderQuote?{expectedTotal:orderQuote.total}:{})};
+ const requestKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(request)))),b=>b.toString(16).padStart(2,'0')).join(''),old=local.get('icss-checkout-'+store.slug,null);const pending=old?.requestKey===requestKey?old:{requestKey,idempotency:uid(),orderToken:uid()+uid()};local.set('icss-checkout-'+store.slug,pending);
+ try{result=await api('/api/stores/'+store.slug+'/orders','POST',{...request,idempotency:pending.idempotency,orderToken:pending.orderToken});}catch(error){if(error.message==='The order total changed. Review the updated total before placing your order.')await applyOrderQuote(form);throw error;}local.set('icss-order-'+store.slug,{id:result.order.id,token:result.token});local.remove('icss-checkout-'+store.slug);
  }
  saveCart([]);modal.close();renderStore();showOrderReceipt(result.order);return;
  }
@@ -267,7 +315,7 @@ document.addEventListener('submit',async e=>{
  }
  }catch(error){const box=form.querySelector('.form-error');if(box){box.className='form-error error';box.textContent=error.message;}else toast(error.message);}finally{if(submit)submit.disabled=false;}
 });
-function showOrderReceipt(o){showModal(`${o.paid?illustration('payment-success'):''}<h2>${demo?'Sample order placed':'Order received'}</h2><p>Reference: <strong>${esc(o.short_id||o.id)}</strong></p><div class="note ${o.paid?'':'warn'}">${o.paid?'Payment confirmed.':demo?'Demo order saved. View it under Orders in the demo dashboard. No payment was taken.':'Your order is recorded. Payment is pending verification. Keep this order reference.'}</div><p>Total: ${money(o.total,o.currency)}</p>${!demo?`<p>Seller: <strong>${esc(o.seller?.name||store.settings.name)}</strong>. ${(o.seller?.email||store.settings.contactEmail)?`<a href="mailto:${esc(o.seller?.email||store.settings.contactEmail)}">Contact seller</a> · `:''}<a href="${esc(reportLink(o.slug||store.slug,o.short_id||''))}">Report this vendor</a></p>`:''}${o.policySnapshot?`<details><summary>Seller policies at the time of order</summary>${[['terms','Sales terms'],['shipping','Delivery'],['returns','Returns and refunds'],['privacy','Privacy notice']].map(([k,label])=>`<h3>${label}</h3><p class="preline">${esc(o.policySnapshot[k])}</p>`).join('')}</details>`:''}${o.payment?.instructions?`<p class="preline">${esc(o.payment.instructions)}</p>`:''}${o.payment?.url?`<a class="btn" href="${esc(o.payment.url)}" rel="noreferrer">Continue to payment provider ↗</a>`:''}${o.paymentError?`<p>${esc(o.paymentError)}</p>`:''}${!demo?(!o.paid&&!o.payment?.url&&o.state!=='cancelled'?button('Retry payment setup','retry-payment','outline sm'):'')+button('Refresh payment status','order-status','outline sm'):`<a class="btn outline" href="/demo?tab=orders">View demo orders →</a>`}`);}
+function showOrderReceipt(o){showModal(`${o.paid?illustration('payment-success'):''}<h2>${demo?'Sample order placed':'Order received'}</h2><p>Reference: <strong>${esc(o.short_id||o.id)}</strong></p><div class="note ${o.paid?'':'warn'}">${o.paid?'Payment confirmed.':demo?'Demo order saved. View it under Orders in the demo dashboard. No payment was taken.':'Your order is recorded. Payment is pending verification. Keep this order reference.'}</div><p>Total: ${money(o.total,o.currency)}${o.discount?' · Discount '+money(o.discount,o.currency):''}</p>${!demo&&o.paid&&o.state==='fulfilled'?(o.review?'<p>Your review has been submitted.</p>':`<details><summary>Write a verified review</summary><form data-form="submit-review" data-id="${esc(o.id)}">${select('Rating','rating','5',[['5','5 stars'],['4','4 stars'],['3','3 stars'],['2','2 stars'],['1','1 star']])}${field('Display name (optional)','name')}${area('Your review','comment')}<div class="form-error"></div><button class="btn sm" type="submit">Submit review</button></form></details>`):''}${!demo?`<p>Seller: <strong>${esc(o.seller?.name||store.settings.name)}</strong>. ${(o.seller?.email||store.settings.contactEmail)?`<a href="mailto:${esc(o.seller?.email||store.settings.contactEmail)}">Contact seller</a> · `:''}<a href="${esc(reportLink(o.slug||store.slug,o.short_id||''))}">Report this vendor</a></p>`:''}${o.policySnapshot?`<details><summary>Seller policies at the time of order</summary>${[['terms','Sales terms'],['shipping','Delivery'],['returns','Returns and refunds'],['privacy','Privacy notice']].map(([k,label])=>`<h3>${label}</h3><p class="preline">${esc(o.policySnapshot[k])}</p>`).join('')}</details>`:''}${o.payment?.instructions?`<p class="preline">${esc(o.payment.instructions)}</p>`:''}${o.payment?.url?`<a class="btn" href="${esc(o.payment.url)}" rel="noreferrer">Continue to payment provider ↗</a>`:''}${o.paymentError?`<p>${esc(o.paymentError)}</p>`:''}${!demo?(!o.paid&&!o.payment?.url&&o.state!=='cancelled'?button('Retry payment setup','retry-payment','outline sm'):'')+button('Refresh payment status','order-status','outline sm'):`<a class="btn outline" href="/demo?tab=orders">View demo orders →</a>`}`);}
 function publishDialog(){showModal(`<h2>Publish as an independent vendor</h2><p>Your business is responsible for sales, fulfilment, returns and refunds. Your store policies must be accurate.</p><form data-form="publish-vendor"><label class="field check"><input name="vendorAcknowledgement" type="checkbox" required><span>I agree to the <a href="/legal/vendor-agreement" target="_blank" rel="noopener">independent vendor agreement</a> and confirm that my store details and policies are current.</span></label><div class="form-error" role="alert"></div><button class="btn" type="submit">Publish store</button></form>`);}
 document.addEventListener('click',async e=>{
  const el=e.target.closest('[data-action],[data-tab],[data-category],[data-policy]');if(!el)return;
@@ -276,6 +324,33 @@ document.addEventListener('click',async e=>{
  if(el.dataset.category){category=el.dataset.category;renderStore();if(el.dataset.jump)document.getElementById(el.dataset.jump)?.scrollIntoView();return;}
  if(el.dataset.policy){renderStore(el.dataset.policy);window.scrollTo(0,0);return;}
  const action=el.dataset.action,pid=el.dataset.id;
+ if(action==='shop-feature'){openShopFeature(pid);return;}
+ if(action==='quiz-add'){const row=modal.querySelector('.quiz-rule[hidden]');if(row){row.hidden=false;row.querySelector('input')?.focus();}return;}
+ if(action==='shop-feature-remove'){
+  const list=state.settings.features?.[tab]||[];
+  if(window.confirm(tab==='journal'?'Remove this article?':'Remove this discount code?'))await saveShopFeature(tab,list.filter(x=>(x.id||x.code)!==pid));
+  return;
+ }
+ if(action==='review-hidden'||action==='review-published'){
+  const status=action.slice(7);
+  if(demo){const o=state.orders.find(x=>x.id===pid);if(o?.review)o.review.status=status;saveDemo();dashboard();}
+  else{await api('/api/admin/'+state.id+'/features/reviews/'+pid,'PUT',{status});await refreshShopReviews();}
+  return;
+ }
+ if(action==='feature-email-preview'){
+  const data=formData(el.closest('form')),target=modal.querySelector('#email-template-preview');
+  if(demo){target.textContent=[data.subject||'Default Plaza subject',data.message||'Default Plaza message'].join(' — ');}
+  else{
+   const d=await api('/api/admin/'+state.id+'/features/email-preview','POST',{kind:pid,value:{subject:data.subject,message:data.message}});
+   target.innerHTML='<strong>'+esc(d.subject)+'</strong><iframe title="Customer email preview" sandbox></iframe>';target.querySelector('iframe').srcdoc=d.html;
+  }
+  return;
+ }
+ if(action==='order-quote'){
+  const form=el.closest('form');el.disabled=true;
+  try{await applyOrderQuote(form);form.querySelector('.form-error').textContent='';}catch(error){form.querySelector('.form-error').textContent=error.message;}
+  finally{el.disabled=false;}return;
+ }
  if(action==='vendor-menu'){const open=el.getAttribute('aria-expanded')!=='true';el.setAttribute('aria-expanded',String(open));el.closest('.vendor-sidebar').classList.toggle('menu-open',open);return;}
  if(action==='vendor-stock'){stockDialog(pid);return;}
  if(action==='developer-tab'){
@@ -348,6 +423,7 @@ document.addEventListener('change',async e=>{
  if(e.target.matches('[data-vendor-status]')){updateVendorFilter(e.target.closest('.vendor-panel'));return;}
  if(e.target.matches('[data-sort]')){sort=e.target.value;renderStore();}
  if(e.target.matches('[data-cart-quantity]')){const c=cart(),index=Number(e.target.dataset.cartQuantity),qty=Number(e.target.value),line=resolvedCart()[index];if(!Number.isInteger(qty)||qty<1||qty>99||qty>line.stock)throw Error('Choose a whole quantity within available stock.');c[index].quantity=qty;saveCart(c);modal.close();cartDialog();}
+ if(e.target.name==='delivery'&&e.target.closest('[data-form=checkout]')&&orderQuote){try{await applyOrderQuote(e.target.closest('form'));}catch(error){toast(error.message);}return;}
  if(e.target.name==='delivery'&&e.target.closest('[data-form=checkout]')){const total=modal.querySelector('#checkout-total');const shipping=e.target.value==='pickup'?0:Number(total.dataset.shipping);modal.querySelector('#shipping-total').textContent=money(shipping,store.settings.currency);total.textContent=money(Number(total.dataset.subtotal)+shipping,store.settings.currency);}
  if(e.target.matches('[data-product-upload]')){
   const input=e.target,file=input.files[0];if(!file)return;const form=input.closest('form'),name=input.dataset.productUpload;

@@ -1,4 +1,4 @@
-import {esc} from './storefront.js?v=studio-1';
+import {esc} from './storefront.js?v=growth-1';
 
 const paths={
  overview:'<path d="M3 3v18h18M7 15l4-4 4 2 5-6"/>',
@@ -17,23 +17,30 @@ const paths={
  preview:'<path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2"/>',
  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
  exit:'<path d="M11 4H4v16h7m4-12 4 4-4 4m-6-4h10"/>',
+ discounts:'<path d="M3 4h8l10 10-7 7L3 10zM7 8h.01"/>',
+ loyalty:'<path d="M3 9h18v4H3zM5 13v8h14v-8M12 9v12m0-12c-2-7-9-5-5-1m5 1c2-7 9-5 5-1"/>',
+ quiz:'<path d="M7 16 16 7l3 3-9 9zm2-11v4m-2-2h4m7 10v4m-2-2h4"/>',
+ reviews:'<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>',
+ journal:'<path d="M4 4h16v16H4zm4 4h8m-8 4h8m-8 4h5"/>',
+ emails:'<path d="M3 5h18v14H3zm0 2 9 6 9-6"/>',
  home:'<path d="M4 11l8-7 8 7v9H4zM10 20v-6h4v6"/>'
 };
 export const workspaceIcon=(name)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||''}</svg>`;
 const sections=[
  ['Workspace',[['overview','Dashboard']]],
  ['Commerce',[['orders','Orders'],['products','Products'],['inventory','Inventory'],['customers','Customers']]],
- ['Storefront',[['appearance','Store Designer'],['content','Site Content'],['media','Media Library'],['policies','Policies']]],
- ['Management',[['payments','Payment Methods'],['billing','Rental Billing'],['vendor-cases','Vendor Reports'],['settings','Store Settings']]]
+ ['Growth',[['discounts','Discounts'],['loyalty','Loyalty Program'],['quiz','Quiz Rules'],['reviews','Reviews']]],
+ ['Storefront',[['appearance','Store Designer'],['journal','Journal & Content'],['content','Site Content'],['media','Media Library'],['policies','Policies']]],
+ ['Management',[['emails','Email Templates'],['payments','Payment Methods'],['billing','Rental Billing'],['vendor-cases','Vendor Reports'],['settings','Store Settings']]]
 ];
 const supportTabs=['overview','products','inventory','appearance','content','media','policies'];
-export const workspaceSections=({support=false,demo=false}={})=>sections.map(([group,rows])=>[group,rows.filter(([key])=>support?supportTabs.includes(key):!demo||!['billing','vendor-cases'].includes(key))]).filter(([,items])=>items.length);
+export const workspaceSections=({support=false,demo=false,testWorkspace=false}={})=>sections.map(([group,rows])=>[group,rows.filter(([key])=>support?(supportTabs.includes(key)||testWorkspace&&['discounts','loyalty','quiz','reviews','journal','emails'].includes(key)):!demo||!['billing','vendor-cases'].includes(key))]).filter(([,items])=>items.length);
 export const workspaceTab=(key,options)=>workspaceSections(options).flatMap(([,items])=>items).some(([id])=>id===key)?key:'overview';
 export const workspaceTitle=(key,options)=>workspaceSections(options).flatMap(([,items])=>items).find(([id])=>id===key)?.[1]||'Dashboard';
 export function workspaceSidebar({tab,state,support,demo,operator}){
- const sections=workspaceSections({support,demo});
+ const sections=workspaceSections({support,demo,testWorkspace:state.slug==='plaza-test-workspace'});
  return `<aside class="vendor-sidebar" aria-label="Vendor workspace sidebar">
- <div class="vendor-sidebar-top"><a class="vendor-brand" href="/" aria-label="ICSS Plaza home"><img src="/assets/brand/logo-horizontal-light.png" width="900" height="220" alt="ICSS Plaza"><span>VENDOR WORKSPACE</span></a><button class="vendor-menu-toggle" type="button" data-action="vendor-menu" aria-expanded="false" aria-controls="vendor-menu-body">${workspaceIcon('menu')}<span>Menu</span></button></div>
+ <div class="vendor-sidebar-top"><a class="vendor-brand" href="/" aria-label="ICSS Plaza home"><img src="/assets/brand/logo-horizontal.png" width="900" height="220" alt="ICSS Plaza"><span>VENDOR WORKSPACE</span></a><button class="vendor-menu-toggle" type="button" data-action="vendor-menu" aria-expanded="false" aria-controls="vendor-menu-body">${workspaceIcon('menu')}<span>Menu</span></button></div>
  <div class="vendor-menu-body" id="vendor-menu-body"><div class="vendor-store-card"><span class="vendor-store-icon">${workspaceIcon('home')}</span><div><strong>${esc(state.settings.name)}</strong><small>${demo?'Sample store':support?'Support access':state.settings.published?'Published storefront':'Draft storefront'}</small></div></div>
  <nav class="vendor-nav" aria-label="Store management">${sections.map(([name,items])=>`<div class="vendor-nav-group"><span>${name}</span>${items.map(([id,label])=>`<button type="button" class="vendor-nav-link${id===tab?' active':''}" data-tab="${id}" ${id===tab?'aria-current="page"':''}>${workspaceIcon(id)}<span>${label}</span></button>`).join('')}</div>`).join('')}</nav>
  <div class="vendor-sidebar-bottom">${!support&&!demo&&state.settings.published?`<a class="vendor-nav-link" href="/s/${esc(state.slug)}" target="_blank" rel="noopener">${workspaceIcon('preview')}<span>View live storefront ↗</span></a>`:`<button type="button" class="vendor-nav-link" data-action="preview">${workspaceIcon('preview')}<span>Full storefront preview</span></button>`}

@@ -9,7 +9,9 @@ import { developerAuth } from './developer-auth.js';
 import { operatorAccess, ownerEmail, permitsSupport } from './operator-access.js';
 import { launchTestAccess } from './test-access.js';
 import { policyVersion } from '../public/trust-data.js';
+import { emailMessage } from './email-design.js';
 import { getTemplate } from '../public/store-templates.js';
+import { discountFor, featureMail, featureValue, liveFeatures, reviewValue } from './vendor-features.js';
 import { designKeys } from '../public/store-design-fields.js';
 import { mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
@@ -61,9 +63,52 @@ export async function createApp(options={}) {
  function requireUser(req){if(!req.user)fail('Please sign in.',401);}
  function requireOperator(req){requireUser(req);if(!req.operator)fail('Operator access required.',403);}
  async function getConfig(tid,provider){const row=(await one('SELECT * FROM gateways WHERE tenant_id=? AND provider=?',tid,provider));if(!row)fail('Payment method is unavailable.');return {...row,value:decrypt(row.config,key)};}
+ async function pricedLines(t,items){
+  if(!Array.isArray(items)||items.length<1||items.length>100)fail('Your cart must contain 1–100 items.');
+  const list=[],seen=new Set();
+  for(const line of items){
+   const pid=text(line?.productId,40,1),vid=text(line?.variantId||'',60),identity=JSON.stringify([pid,vid]);
+   if(seen.has(identity))fail('Duplicate cart item.');
+   seen.add(identity);
+   const row=await one('SELECT data FROM products WHERE id=? AND tenant_id=?',pid,t.id);
+   const p=row&&JSON.parse(row.data),quantity=integer(line.quantity,99,1);
+   const item=p?.variants.length?p.variants.find(v=>v.id===vid):vid?null:p;
+   if(!p?.active||!item||item.stock<quantity)fail('A product or quantity is no longer available.',409);
+   list.push({price:item.price,quantity});
+  }
+  return list;
+ }
+ async function checkoutTotal(t,b,lines,delivery,login){
+  const subtotal=lines.reduce((n,x)=>n+x.price*x.quantity,0),code=text(b.discountCode||'',30);
+  if(code&&b.loyaltyReward===true)fail('Choose a discount code or the loyalty reward.');
+  const discount=code?discountFor(t.settings,code,subtotal):b.loyaltyReward===true?await loyaltyAmount(t,login||email(b.customer?.email),b.loyaltyProof,subtotal):0;
+  return {...totals(lines,t.settings,delivery,discount),...(discount>0&&b.loyaltyReward===true?{loyaltyReward:true}:{})};
+ }
  const readOrder=row=>row?{...JSON.parse(row.data),id:row.id,tenant_id:row.tenant_id,short_id:row.short_id,state:row.state,paid:!!row.paid,created:row.created,transaction_id:row.transaction_id}:null;
  async function orderAccess(oid,token){const row=(await one('SELECT * FROM orders WHERE id=?',oid));if(!row||!token||!same(row.token_hash,hash(token)))fail('Order not found.',404);return readOrder(row);}
- async function paid(tid,oid,transaction){return tx(async ()=>{const o=(await one('SELECT * FROM orders WHERE id=?',oid));if(!o)fail('Order not found.',404);if(o.paid)return;if(o.state==='cancelled')fail('Order cancelled: payment needs operator review.',409);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=?',transaction,oid);await audit(o.tenant_id,'gateway','payment.verified');const order=readOrder(o),tenant=await getTenantId(tid);await notify('payment',oid,order.customer.email,orderMail(order,tenant),{replyTo:order.seller?.email||tenant.settings.contactEmail});},'tenant:'+tid);}
+ async function reviews(tid,publicOnly=false){
+  const rows=await all("SELECT id,short_id,data FROM orders WHERE tenant_id=? AND paid=1 AND state='fulfilled' AND data LIKE ? ORDER BY created DESC",tid,'%"review":%');
+  return rows.flatMap(row=>{
+   const r=JSON.parse(row.data).review;
+   if(!r||publicOnly&&r.status!=='published')return [];
+   return [publicOnly?{name:r.name,rating:r.rating,comment:r.comment}:{...r,id:row.id,reference:row.short_id}];
+  }).slice(0,publicOnly?30:200);
+ }
+ async function loyaltyAmount(t,login,proof,subtotal){
+  const f=t.settings.features?.loyalty;
+  if(!f?.enabled||!proof||typeof proof.id!=='string'||!/^[a-f0-9]{24}$/.test(proof.id)||typeof proof.token!=='string'||proof.token.length<32||proof.token.length>100)fail('Open a previous paid order from this store to verify your loyalty eligibility.');
+  const checked=await orderAccess(proof.id,proof.token);
+  if(checked.tenant_id!==t.id||checked.customer.email!==login||!checked.paid||checked.state!=='fulfilled')fail('Use a fulfilled order placed with this email to verify your loyalty eligibility.');
+  const history=(await all("SELECT paid,state,created,data FROM orders WHERE tenant_id=? AND state<>'cancelled' ORDER BY created DESC,id DESC",t.id)).filter(r=>JSON.parse(r.data).customer?.email===login);
+  let eligible=0;
+  for(const row of history){
+   if(JSON.parse(row.data).loyaltyReward)break;
+   if(row.paid&&row.state==='fulfilled')eligible++;
+   if(eligible>=f.orders)return Math.floor(subtotal*f.percent/100);
+  }
+  fail('You do not have enough completed paid orders for this reward.');
+ }
+ async function paid(tid,oid,transaction){return tx(async ()=>{const o=(await one('SELECT * FROM orders WHERE id=?',oid));if(!o)fail('Order not found.',404);if(o.paid)return;if(o.state==='cancelled')fail('Order cancelled: payment needs operator review.',409);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=?',transaction,oid);await audit(o.tenant_id,'gateway','payment.verified');const order=readOrder(o),tenant=await getTenantId(tid);await notify('payment',oid,order.customer.email,{...orderMail(order,tenant),custom:featureMail(tenant,'payment')},{replyTo:order.seller?.email||tenant.settings.contactEmail});},'tenant:'+tid);}
  async function release(o){const data=JSON.parse(o.data);for(const l of data.lines){const p=(await one('SELECT * FROM products WHERE id=? AND tenant_id=?',l.productId,o.tenant_id));if(!p)continue;const d=JSON.parse(p.data);if(l.variantId){const v=d.variants.find(x=>x.id===l.variantId);if(v)v.stock+=l.quantity;}else d.stock+=l.quantity;await run('UPDATE products SET data=? WHERE id=?',JSON.stringify(d),p.id);}}
  const paymentLocks=new Set();
  const rate=new Map();function limit(req,bucket,max){const ip=process.env.TRUST_PROXY==='1'?String(req.headers['x-forwarded-for']||req.socket.remoteAddress).split(',')[0]:req.socket.remoteAddress;const k=bucket+':'+ip;const now=Date.now();let r=rate.get(k);if(!r||r.until<now)r={count:0,until:now+900000};if(++r.count>max)fail('Too many requests. Try again in 15 minutes.',429);rate.set(k,r);}
@@ -185,7 +230,13 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(path==='/api/reset'&&method==='POST'){limit(req,'reset',20);const resetHash=hash(text(b.token,100,1));await tx(async ()=>{const r=await one('SELECT * FROM resets WHERE token=? AND expires>?',resetHash,Date.now());if(!r)fail('Reset token is invalid or expired.');await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),r.user_id);(await run('DELETE FROM sessions WHERE user_id=?',r.user_id));await run('DELETE FROM resets WHERE user_id=?',r.user_id);const user=await one('SELECT email FROM users WHERE id=?',r.user_id);await notify('password_changed',resetHash,user?.email);},'password-reset');return respond(res,{ok:true});}
  let m;
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)$/))&&method==='GET'){
- const t=(await getTenant(m[1]));if(!await available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);const {designDraft,...publicSettings}=t.settings;return respond(res,{id:t.id,slug:t.slug,settings:publicSettings,checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
+ const t=(await getTenant(m[1]));if(!await available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);const {designDraft,features,...publicSettings}=t.settings;return respond(res,{id:t.id,slug:t.slug,settings:publicSettings,features:liveFeatures(t.settings),reviews:await reviews(t.id,true),checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
+ }
+ if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)\/quote$/))&&method==='POST'){
+  limit(req,'checkout-quote',60);
+  const t=await getTenant(m[1]);if(!await available(t)||!t.settings.published||await storefrontRestriction(t.id))fail('Store checkout is unavailable.',404);
+  const lines=await pricedLines(t,b.lines);
+  return respond(res,await checkoutTotal(t,b,lines,b.delivery==='pickup'?'pickup':'shipping'));
  }
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)\/orders$/))&&method==='POST'){
  limit(req,'checkout',60);
@@ -211,10 +262,12 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(item.stock<quantity)fail(`${p.name} has insufficient stock.`,409);item.stock-=quantity;await run('UPDATE products SET data=? WHERE id=? AND tenant_id=?',JSON.stringify(p),pid,t.id);
  lines.push({productId:pid,variantId,name:p.name+(item!==p?' — '+item.name:''),price:item.price,quantity,type:p.type});
  }
- const total=totals(lines,t.settings,delivery);const data={...total,currency:t.settings.currency,slug:t.slug,gateway,customer:contact,delivery,lines,provider_id:'',payment:null,paymentConfig:encrypt(config,key),termsAcceptedAt:Date.now(),seller:{name:t.settings.name,email:t.settings.contactEmail,phone:t.settings.phone,address:t.settings.address},policySnapshot:{terms:t.settings.terms,shipping:t.settings.shipping,returns:t.settings.returns,privacy:t.settings.privacy,platformVersion:policyVersion}};
+ const total=await checkoutTotal(t,b,lines,delivery,contact.email);
+ if(b.expectedTotal!==undefined&&b.expectedTotal!==total.total)fail('The order total changed. Review the updated total before placing your order.',409);
+ const data={...total,currency:t.settings.currency,slug:t.slug,gateway,customer:contact,delivery,lines,provider_id:'',payment:null,paymentConfig:encrypt(config,key),termsAcceptedAt:Date.now(),seller:{name:t.settings.name,email:t.settings.contactEmail,phone:t.settings.phone,address:t.settings.address},policySnapshot:{terms:t.settings.terms,shipping:t.settings.shipping,returns:t.settings.returns,privacy:t.settings.privacy,platformVersion:policyVersion}};
  (await run('INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?,?)',oid,short,t.id,hash(orderToken),idem,fingerprint,JSON.stringify(data),'new',0,null,Date.now()));
  const order=readOrder(await one('SELECT * FROM orders WHERE id=?',oid));const mail=orderMail(order,t);
- await notify('order_buyer',oid,contact.email,{...mail,token:orderToken},{replyTo:t.settings.contactEmail});
+ await notify('order_buyer',oid,contact.email,{...mail,token:orderToken,custom:featureMail(t,'order_buyer')},{replyTo:t.settings.contactEmail});
  const seller=await one('SELECT email FROM users WHERE id=?',t.owner);await notify('order_vendor',oid,seller?.email,mail);
  return {order,config};
  }, 'tenant:'+initial.id);
@@ -231,6 +284,19 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(paymentLocks.has(o.id))fail('Payment is already starting. Try again shortly.',409);
  paymentLocks.add(o.id);
  try{const config=decrypt(o.paymentConfig,key);o.payment=await initiate(o,config,baseURL,options.fetcher);o.provider_id=o.payment.providerId||'';await run('UPDATE orders SET data=? WHERE id=?',JSON.stringify(o),o.id);const safe={...o};delete safe.paymentConfig;return respond(res,{order:safe});}finally{paymentLocks.delete(o.id);}
+ }
+ if((m=path.match(/^\/api\/orders\/([a-f0-9]{24})\/review$/))&&method==='POST'){
+  limit(req,'store-review',12);
+  const oid=m[1],proof=await orderAccess(oid,text(b.token,100,32));
+  const review=await tx(async()=>{
+   const o=await orderAccess(oid,b.token),t=await getTenantId(o.tenant_id);
+   if(!o.paid||o.state!=='fulfilled'||!t.settings.published||!await available(t)||await storefrontRestriction(t.id))fail('Reviews require a completed paid order.',403);
+   if(o.review)fail('A review has already been submitted for this order.',409);
+   const review=reviewValue(b),row=await one('SELECT data FROM orders WHERE id=?',oid);
+   await run('UPDATE orders SET data=? WHERE id=?',JSON.stringify({...JSON.parse(row.data),review}),oid);
+   return review;
+  },'tenant:'+proof.tenant_id);
+  return respond(res,{review},201);
  }
  if((m=path.match(/^\/api\/orders\/([a-f0-9]+)\/lookup$/))&&method==='POST'){limit(req,'order-lookup',60);const o=await orderAccess(m[1],b.token);delete o.paymentConfig;return respond(res,{order:o});}
  if((m=path.match(/^\/api\/orders\/([a-f0-9]+)$/))&&method==='GET'){const o=(await orderAccess(m[1],u.searchParams.get('token')));delete o.paymentConfig;return respond(res,{order:o});}
@@ -256,9 +322,43 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(req.headers['x-plaza-support']){
   support=await access.active(req,idForStore);
   if(!support||!target)fail('Vendor support session ended or is unavailable.',403);
-  if(!permitsSupport(action,method))fail('This action is outside storefront support access.',403);
+  if(!permitsSupport(action,method,target.slug==='plaza-test-workspace'))fail('This action is outside storefront support access.',403);
  }
  const t=support?target:owner(req,target);
+ if(action==='features/email-preview'&&method==='POST'){
+  if(!['order_buyer','payment','order_status'].includes(b.kind))fail('Unknown email template.');
+  const custom=featureValue('emails',{[b.kind]:b.value})[b.kind];
+  return respond(res,emailMessage(b.kind,{store:t.settings.name,slug:t.slug,id:'preview',token:'preview',reference:'PLAZA-EXAMPLE',amount:t.settings.currency+' 2,500.00',state:'fulfilled',custom},baseURL||'http://localhost'));
+ }
+ if(action==='features/reviews'&&method==='GET')return respond(res,{reviews:await reviews(t.id)});
+ const feature=action.match(/^features\/(discounts|loyalty|quiz|journal|emails)$/);
+ const moderate=action.match(/^features\/reviews\/([a-f0-9]{24})$/);
+ if(method==='PUT'&&(feature||moderate)){
+  const key=feature?.[1];
+  const result=await tx(async()=>{
+   const current=await getTenantId(t.id);
+   if(support&&(current?.slug!=='plaza-test-workspace'||!await access.active(req,t.id)))fail('This feature is outside your support session.',403);
+   const fresh=support?current:owner(req,current);
+   if(key){
+    const raw=key==='discounts'&&Array.isArray(b.value)?b.value.map(x=>({...x,currency:fresh.settings.currency})):b.value;
+    const value=featureValue(key,raw);
+    if(key==='quiz'&&value.enabled&&(!value.rules.length||value.rules.some(x=>!fresh.settings.categories.includes(x.category))))fail('Set up a category in Store Designer, then choose a valid category for every answer.');
+    const features={...fresh.settings.features,[key]:value};
+    await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify({...fresh.settings,features}),t.id);
+    await audit(t.id,req.user.id,'store.features.'+key);
+    return {features};
+   }
+   const oid=moderate[1],row=await one('SELECT data FROM orders WHERE id=? AND tenant_id=?',oid,t.id);
+   const data=row&&JSON.parse(row.data);
+   if(!data?.review)fail('Review not found.',404);
+   if(!['published','hidden'].includes(b.status))fail('Choose a review status.');
+   data.review.status=b.status;
+   await run('UPDATE orders SET data=? WHERE id=? AND tenant_id=?',JSON.stringify(data),oid,t.id);
+   await audit(t.id,req.user.id,'store.review.'+b.status+'.'+oid);
+   return {ok:true};
+  },'tenant:'+t.id);
+  return respond(res,result);
+ }
  if(action==='support-state'&&method==='GET'&&support)return respond(res,support);
  if(action==='billing'&&method==='GET')return respond(res,await billing.list(t.id));
  if(action==='billing/checkout'&&method==='POST'){limit(req,'rental-checkout',20);return respond(res,await billing.checkout(t,b));}
@@ -361,8 +461,8 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  await tx(async ()=>{
  const row=await one('SELECT * FROM orders WHERE id=? AND tenant_id=?',a[1],t.id);if(!row)fail('Order not found.',404);const o=readOrder(row);
  if(b.markPaid===true&&gateways.find(g=>g.id===o.gateway)?.mode!=='manual')fail('Automated payments must be verified by the provider.');
- if(b.markPaid===true&&!o.paid){if(o.state==='cancelled')fail('Cancelled order cannot be paid.');const reference=text(b.reference,200,3);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=? AND tenant_id=?','manual:'+reference,o.id,t.id);(await audit(t.id,req.user.id,'payment.manual-confirmation'));await notify('payment',o.id,o.customer.email,orderMail(o,t),{replyTo:o.seller?.email||t.settings.contactEmail});}
- if(b.state){if(!['new','processing','fulfilled','cancelled'].includes(b.state))fail('Invalid order status.');if(o.state==='cancelled'&&b.state!=='cancelled')fail('Cancelled orders cannot be reopened.');const isPaid=o.paid||b.markPaid===true;if(b.state==='fulfilled'&&!isPaid)fail('Confirm payment before fulfilment.');if(b.state==='cancelled'&&isPaid)fail('Refund with your payment provider first. Contact support to reconcile the refund.');if(b.state==='cancelled'&&o.state!=='cancelled')(await release(row));await run('UPDATE orders SET state=? WHERE id=? AND tenant_id=?',b.state,o.id,t.id);if(b.state!==o.state)await notify('order_status',id(),o.customer.email,{...orderMail(o,t),state:b.state},{replyTo:o.seller?.email||t.settings.contactEmail});}
+ if(b.markPaid===true&&!o.paid){if(o.state==='cancelled')fail('Cancelled order cannot be paid.');const reference=text(b.reference,200,3);await run('UPDATE orders SET paid=1,transaction_id=? WHERE id=? AND tenant_id=?','manual:'+reference,o.id,t.id);(await audit(t.id,req.user.id,'payment.manual-confirmation'));await notify('payment',o.id,o.customer.email,{...orderMail(o,t),custom:featureMail(t,'payment')},{replyTo:o.seller?.email||t.settings.contactEmail});}
+ if(b.state){if(!['new','processing','fulfilled','cancelled'].includes(b.state))fail('Invalid order status.');if(o.state==='cancelled'&&b.state!=='cancelled')fail('Cancelled orders cannot be reopened.');const isPaid=o.paid||b.markPaid===true;if(b.state==='fulfilled'&&!isPaid)fail('Confirm payment before fulfilment.');if(b.state==='cancelled'&&isPaid)fail('Refund with your payment provider first. Contact support to reconcile the refund.');if(b.state==='cancelled'&&o.state!=='cancelled')(await release(row));await run('UPDATE orders SET state=? WHERE id=? AND tenant_id=?',b.state,o.id,t.id);if(b.state!==o.state)await notify('order_status',id(),o.customer.email,{...orderMail(o,t),state:b.state,custom:featureMail(t,'order_status')},{replyTo:o.seller?.email||t.settings.contactEmail});}
  },'tenant:'+t.id);return respond(res,{ok:true});
  }
  if(action==='export'&&method==='GET'){

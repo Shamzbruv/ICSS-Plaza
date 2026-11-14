@@ -52,7 +52,7 @@ export function emailMessage(kind,p,origin) {
   order_buyer:['Order '+reference+' received','Order receipt','Your order was received',['You placed an order with '+store+', an independent seller on ICSS Plaza.','This confirms the order only. Payment is pending verification. For delivery, returns or refunds, contact the seller.'],orderDetails,'View your order','/s/'+p.slug+'#order='+p.id+'&key='+p.token],
   order_vendor:['New order '+reference,'Store activity','You have a new order',['Review this order in your dashboard. Verify payment before fulfilling it.'],orderDetails,'Open orders','/admin?tab=orders'],
   payment:['Payment confirmed for '+reference,'Order update','Payment confirmed',['Payment has been recorded for your order with '+store+'. Contact the seller for delivery, fulfilment or refunds.'],orderDetails,'Visit the seller','/s/'+p.slug],
-  order_status:[(orderState[p.state]||'Order updated')+' · '+reference,'Order update',orderState[p.state]||'Your order was updated',['The seller, '+store+', updated your order. Contact the seller if you need more information.'],orderDetails,'Visit the seller','/s/'+p.slug],
+  order_status:[(orderState[p.state]||'Order updated')+' · '+reference,'Order update',orderState[p.state]||'Your order was updated',['The seller, '+store+', updated your order. Contact the seller if you need more information.',...(p.state==='fulfilled'?['You can leave a verified review from the private order link in your original order receipt.']:[])],orderDetails,'Visit the seller','/s/'+p.slug],
   case_customer:['ICSS Plaza report '+reference,'Trust & safety',p.status==='received'?'Your report was received':'There’s an update to your report',['Use your private access key to view case details. Case evidence and access keys are never included in these emails.'],caseDetails,'Track your report','/report?case='+reference],
   case_vendor:['A vendor case needs your attention','Trust & safety','Update on a vendor report',['Sign in to see the case summary and respond privately to ICSS Plaza.'],[['Case reference',reference]],'Open vendor reports','/admin?tab=vendor-cases'],
   case_operator:['Vendor report needs review','Trust & safety','A vendor case needs review',['Sign in to review the report or new response. Case details stay in the private dashboard.'],[['Case reference',reference],['Priority',p.priority||'Standard']],'Open investigations','/developer?tab=trust'],
@@ -66,5 +66,5 @@ export function emailMessage(kind,p,origin) {
   service_operator:['New ICSS Plaza service request','Platform support','A store needs assistance',['A vendor submitted a service request. Sign in to review it.'],[['Store',store],['Request type',p.type]],'Open operator dashboard','/developer?tab=support']
  };
  const [subject,eyebrow,title,paragraphs,details,cta,path]=map[kind];
- return brandEmail({subject,eyebrow,title,paragraphs,details,cta,url:origin+path,origin});
+ return brandEmail({subject:p.custom?.subject||subject,eyebrow,title,paragraphs:[...paragraphs,...(p.custom?.message?[p.custom.message]:[])],details,cta,url:origin+path,origin});
 }
