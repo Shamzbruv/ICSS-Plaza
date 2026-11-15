@@ -28,17 +28,18 @@ vendor's shop. The plans are monthly. No prices or active plans are seeded.
   and `PLAZA_FYGARO_SECRET` for the platform's dynamic button. Configure
   `/api/billing/hooks/fygaro` as its HTTPS webhook on the live Plaza host.
   Each verified payment buys one month; the next month is paid separately.
-- **PayPal, automatic renewal:** In the ICSS Plaza Railway service’s **Variables**,
-  set `PLAZA_PAYPAL_MODE=live`, `PLAZA_PAYPAL_CLIENT_ID`, and
-  `PLAZA_PAYPAL_SECRET` from the same **Live** PayPal app. Use a sealed
-  secret for `PLAZA_PAYPAL_SECRET`. Leave `PLAZA_PAYPAL_WEBHOOK_ID` blank
-  for automatic registration. After the service redeploys, go to
-  **Developer → Subscriptions → Complete PayPal setup**. Plaza verifies
-  the credentials, registers or verifies the webhook, and publishes the
-  **ICSS Plaza Monthly** PayPal plan at **US$31.39/month** (J$5,000 launch
-  equivalent). The USD amount is fixed; bank and PayPal conversion can vary.
-  Setup does not create a subscription or charge anyone. Running it again
-  verifies the connection without duplicating the plan or reopening a retired plan.
+- **PayPal, automatic renewal:** As the Plaza owner, open **Developer →
+  Subscriptions → PayPal settings**. Enter the Client ID and secret from
+  the same PayPal **Live** app and re-enter your current Plaza password.
+  Plaza verifies the app against PayPal before saving the credentials
+  encrypted. The portal never shows the saved secret. To replace a
+  secret for the same app later, leave the Client ID blank.
+  Then select **Complete PayPal setup**. Plaza registers or verifies the
+  webhook and publishes **ICSS Plaza Monthly** at **US$31.39/month**
+  (J$5,000 launch equivalent). Setup does not create a subscription or charge
+  anyone. Running it again verifies the connection without duplicating the
+  plan or reopening a retired plan. Existing Railway variables are used only
+  until the owner saves credentials in the portal.
 - **Existing PayPal webhooks and plans:** If you set `PLAZA_PAYPAL_WEBHOOK_ID`,
   the launch setup checks that this ID belongs to the same app and points to
   `https://icssplaza.com/api/billing/hooks/paypal`. The webhook needs
@@ -54,7 +55,7 @@ vendor's shop. The plans are monthly. No prices or active plans are seeded.
   appear in the Plaza billing ledger. Cancelling renewal does not refund
   a payment. There is no automated refund action in Plaza.
 
-Keep credentials in Railway variables. Test with the merchant providers
+Keep Fygaro credentials in Railway variables. Back up the existing encryption key separately from the database. Test with the merchant providers
 before advertising paid plans. The app's release tests use provider fixtures;
 they do not create live charges.
 

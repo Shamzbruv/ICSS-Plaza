@@ -5,6 +5,9 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createApp} from '../src/server.js';
+import {ownerEmail} from '../src/operator-access.js';
+import {paypalSettingsKey} from '../src/paypal-settings.js';
+import {decrypt} from '../src/model.js';
 
 const origin='https://plaza.example';
 const invite='ab'.repeat(32),testAccess={verifier:createHash('sha256').update(invite).digest('hex'),expiresAt:Date.now()+60000};
@@ -96,21 +99,22 @@ test('developer, consultations, isolated QA and rental gateways enforce their bo
  assert.equal(events.filter(e=>e.kind==='refund_or_reversal').length,1);
 });
 
-test('live PayPal launch registers the webhook, verifies the monthly price and links the plan once',async t=>{
+test('owner settings verify and encrypt Live PayPal credentials, then launch monthly billing once',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'plaza-paypal-launch-'));
- const env={...billingEnv,PLAZA_PAYPAL_WEBHOOK_ID:undefined};
+ const env={...billingEnv,PLAZA_PAYPAL_SECRET:undefined,PLAZA_PAYPAL_WEBHOOK_ID:undefined};
+ const clientId=env.PLAZA_PAYPAL_CLIENT_ID,firstSecret='portal-test-secret',newSecret='portal-rotated-secret',key='12'.repeat(32);
  const paths={oauth:'/v1/oauth2/token',hooks:'/v1/notifications/webhooks',products:'/v1/catalogs/products',plans:'/v1/billing/plans'};
  const tx={hooks:0,products:0,plans:0,subscribers:0};
  const planReference='P-LAUNCH3139';
  let hook,product,plan,remote;
- let accepted=true;
+ let acceptedSecret=firstSecret;
  const billingFetcher=async(url,opts)=>{
   const {pathname,hostname,searchParams}=new URL(url);
   assert.equal(hostname,'api-m.paypal.com');
   const method=opts.method||'GET',body=opts.body?.startsWith('{')?JSON.parse(opts.body):null;
   if(pathname===paths.oauth){
-   assert.equal(opts.headers.Authorization,'Basic '+Buffer.from('test-client:test-secret').toString('base64'));
-   return accepted?Response.json({access_token:'fixture'}):new Response(null,{status:401});
+   return opts.headers.Authorization==='Basic '+Buffer.from(clientId+':'+acceptedSecret).toString('base64')?
+    Response.json({access_token:'fixture'}):new Response(null,{status:401});
   }
   assert.equal(opts.headers.Authorization,'Bearer fixture');
   if(pathname===paths.hooks&&method==='GET')return Response.json({webhooks:hook?[hook]:[]});
@@ -148,7 +152,14 @@ test('live PayPal launch registers the webhook, verifies the monthly price and l
   throw Error('Unexpected PayPal operation: '+pathname);
  };
  const operatorEmail='paypal-launch-operator@example.com',password='secure-launch-test-password';
- const {server}=await createApp({dataDir:dir,databaseURL:process.env.PLAZA_TEST_DATABASE_URL||'',baseURL:origin,encryptionKey:'12'.repeat(32),operatorEmail,operatorPassword:password,production:false,billingEnv:env,billingFetcher});
+ const developerAuthConfig={url:'https://auth.example',anon:'fixture',userId:'2d9774a7-a8ef-46bb-b239-0856c33cc415'};
+ const developerAuthFetcher=async(url,{body})=>{
+  if(new URL(url).pathname==='/logout')return new Response(null,{status:204});
+  const login=JSON.parse(body);
+  if(login.password!==password)return new Response(null,{status:401});
+  return Response.json({user:{id:developerAuthConfig.userId,email:ownerEmail},access_token:'fixture'});
+ };
+ const {server,database}=await createApp({dataDir:dir,databaseURL:process.env.PLAZA_TEST_DATABASE_URL||'',baseURL:origin,encryptionKey:key,operatorEmail,operatorPassword:password,production:false,billingEnv:env,billingFetcher,developerAuthConfig,developerAuthFetcher});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  t.after(async()=>{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});});
  const port=server.address().port;
@@ -160,14 +171,34 @@ test('live PayPal launch registers the webhook, verifies the monthly price and l
  }
  const merchant=await signedIn(await req('/api/signup',{body:{email:'paypal-launch-shop@example.com',password,name:'PayPal launch test shop',slug:'paypal-launch-shop',acceptTerms:true,template:'beauty'}}));
  const op=await signedIn(await req('/api/login',{body:{email:operatorEmail,password}}));
- const setup='/api/operator/billing/paypal-setup';
- assert.equal((await req(setup,{body:{},auth:merchant})).status,403);
- const before=await (await req('/api/operator/billing',{auth:op})).json();
+ const owner=await signedIn(await req('/api/login',{body:{email:ownerEmail,password}}));
+ const setup='/api/operator/billing/paypal-setup',settings='/api/operator/billing/paypal-settings';
+ const credentials={clientId,secret:firstSecret,currentPassword:password};
+ const readSaved=()=>database.one('SELECT value FROM metadata WHERE key=?',paypalSettingsKey);
+ const getSettings=async auth=>(await (await req('/api/operator/billing',{auth})).json());
+ assert.equal((await req(settings,{body:credentials})).status,401);
+ assert.equal((await req(settings,{body:credentials,auth:merchant})).status,403);
+ assert.equal((await req(settings,{body:credentials,auth:op})).status,403);
+ assert.equal((await req(settings,{body:credentials,auth:owner,headers:{'X-CSRF-Token':'invalid'}})).status,403);
+ assert.equal((await req(setup,{body:{},auth:owner})).status,503);
+ const before=await getSettings(owner);
+ assert.equal(before.canManagePayPal,true);
+ assert.equal((await getSettings(op)).canManagePayPal,false);
  assert.equal(before.providers.paypal,false);assert.equal(before.paypalSetup.linked,false);
- accepted=false;
- const denied=await req(setup,{body:{},auth:op});
+ assert.equal((await req(settings,{body:{...credentials,currentPassword:'wrong-existing-password'},auth:owner})).status,401);
+ const denied=await req(settings,{body:{...credentials,secret:'rejected-client-secret'},auth:owner});
  assert.equal(denied.status,502);assert.match((await denied.json()).error,/rejected the app credentials/);
- accepted=true;
+ assert.equal(await readSaved(),undefined);
+ const saved=await req(settings,{body:credentials,auth:owner});assert.deepEqual(await saved.json(),{ok:true});
+ assert.match(saved.headers.get('cache-control'),/no-store/);
+ const stored=(await readSaved()).value;
+ assert.ok(!stored.includes(firstSecret));
+ assert.equal(decrypt(stored,key).secret,firstSecret);
+ const status=await getSettings(owner);
+ assert.equal(status.paypalSetup.credentialsReady,true);
+ assert.equal(status.paypalSetup.linked,false);
+ assert.doesNotMatch(JSON.stringify(status),new RegExp(clientId+'|'+firstSecret));
+ assert.deepEqual(tx,{hooks:0,products:0,plans:0,subscribers:0});
  const first=await req(setup,{body:{},auth:op});assert.equal(first.status,200);
  const {id,enabled}=await first.json();assert.ok(enabled);
  const repeat=await req(setup,{body:{},auth:op});assert.deepEqual(await repeat.json(),{id,enabled:true});
@@ -178,6 +209,11 @@ test('live PayPal launch registers the webhook, verifies the monthly price and l
  assert.deepEqual([offer.amount,offer.currency,offer.paypalOnly],[3139,'USD',true]);
  assert.equal((await req(vendorPath+'/checkout',{body:{plan:id,provider:'fygaro'},auth:merchant})).status,400);
  assert.equal((await req(vendorPath+'/checkout',{body:{plan:id,provider:'paypal'},auth:merchant})).status,200);
+ assert.equal((await req(settings,{body:{...credentials,clientId:'other-live-app'},auth:owner})).status,409);
+ acceptedSecret=newSecret;
+ assert.equal((await req(settings,{body:{clientId:'',secret:newSecret,currentPassword:password},auth:owner})).status,200);
+ assert.equal(decrypt((await readSaved()).value,key).secret,newSecret);
+ assert.equal((await req(setup,{body:{},auth:owner})).status,200);
  const body={id:'EV-LAUNCH',event_type:'PAYMENT.SALE.COMPLETED',resource:{id:'SALE-LAUNCH',billing_agreement_id:remote.id,amount:{total:'31.39',currency:'USD'}}};
  const headers=Object.fromEntries(['auth-algo','cert-url','transmission-id','transmission-sig','transmission-time'].map(k=>['PayPal-'+k,'fixture']));
  assert.equal((await req('/api/billing/hooks/paypal',{body,headers})).status,200);

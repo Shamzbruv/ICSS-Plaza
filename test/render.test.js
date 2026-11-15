@@ -5,7 +5,7 @@ import {gateways} from '../src/payments.js';
 // A template smoke test, not a substitute for browser layout/accessibility QA.
 // It boots the actual front-end module with its platform boundary mocked.
 async function boot(path,search='',routes={}){
- const app={innerHTML:'',addEventListener(){},querySelector(){return null;},querySelectorAll(){return [];}},modal={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;}},toast={style:{},textContent:''},events=new Map(),storage=new Map();
+ const app={innerHTML:'',addEventListener(){},querySelector(){return null;},querySelectorAll(){return [];}},modal={innerHTML:'',open:false,addEventListener(){},showModal(){this.open=true;},close(){this.open=false;}},toast={style:{},textContent:''},events=new Map(),storage=new Map();
  globalThis.document={title:'',querySelector:s=>s==='#app'?app:s==='#modal'?modal:toast,addEventListener:(k,v)=>events.set(k,v)};
  globalThis.location={pathname:path,search,origin:'https://plaza.example'};
  globalThis.localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
@@ -60,6 +60,17 @@ test('a developer can open Vendors from Subscriptions, including from the old ta
  assert.ok(requests.some(([url,method])=>url==='/api/operator/vendors'&&method==='POST'));
 });
 
+test('the Plaza owner can open the PayPal settings and sees an empty masked secret field',async()=>{
+ const billing={plans:[],rentals:[],events:[],paypalSetup:{hasClientId:false,credentialsReady:false},canManagePayPal:true};
+ const routes={'/api/session':{user:{id:'operator'},operator:true,csrf:'test'},'/api/operator/billing':billing};
+ const {app,events,modal}=await boot('/developer','?tab=subscriptions',routes);
+ assert.match(app.innerHTML,/data-action="paypal-settings"/);
+ await events.get('click')({target:{closest:()=>({dataset:{action:'paypal-settings'}})}});
+ assert.match(modal.innerHTML,/name="clientId"[^>]*required/);
+ assert.match(modal.innerHTML,/name="secret" type="password"/);
+ assert.match(modal.innerHTML,/Current ICSS Plaza password/);
+ assert.doesNotMatch(modal.innerHTML,/name="secret"[^>]*value=/);
+});
 test('signup advertises six starter templates with a full wholesale preview',async()=>{
  const {app}=await boot('/signup');
  assert.equal((app.innerHTML.match(/name="template"/g)||[]).length,6);

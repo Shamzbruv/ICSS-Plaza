@@ -52,11 +52,12 @@ export function developerView(tab,d,{trustHTML='' }={}) {
   act('Open vendor workspace','vendor-support',t.id)+act('Details','tenant-detail',t.id)+(t.primaryTest?act('Generate test login','generate-test-login',t.id):t.test?'':act('Rental','rental',t.id)+act('Reset access','issue-reset',t.id))])));
  if(tab==='templates')return panel('Storefront template library','Open any of the six storefronts to review its layout and sample catalogue, without signing up or creating a store.',
   `<div class="template-grid">${templates.map(t=>`<article class="template-card"><img src="${t.art}" width="960" height="600" alt=""><div class="developer-template-details"><strong>${esc(t.label)}</strong><p>${esc(t.description)}</p></div><a href="/templates/${t.id}" target="_blank" rel="noopener">Open storefront preview ↗</a></article>`).join('')}</div>`);
- if(tab==='subscriptions')return (b.paypalSetup?panel('Live PayPal setup','Launch the ICSS Plaza monthly rental at US$31.39, the launch equivalent of J$5,000.',
+ if(tab==='subscriptions')return (b.paypalSetup?panel('Live PayPal setup','Connect PayPal for the US$31.39 monthly Plaza rental (the launch equivalent of J$5,000).',
   b.paypalSetup.credentialsReady?
-   `<p>${b.paypalSetup.enabled?'PayPal is linked and the launch plan accepts new subscriptions.':b.paypalSetup.linked?'PayPal is linked. Reopen the plan below to accept new subscriptions.':'The app credentials are in place. Complete setup to register the webhook and publish the monthly plan.'}</p>`:
-   '<p>Set the Live app credentials in the ICSS Plaza service’s Railway variables: <code>PLAZA_PAYPAL_CLIENT_ID</code>, <code>PLAZA_PAYPAL_SECRET</code> and <code>PLAZA_PAYPAL_MODE=live</code>.</p>',
-  b.paypalSetup.credentialsReady?act(b.paypalSetup.linked?'Verify connection':'Complete PayPal setup','paypal-setup'):''):'')+
+   `<p>${b.paypalSetup.enabled?'PayPal is linked and the plan accepts new subscriptions.':b.paypalSetup.linked?'PayPal is linked. Reopen the plan below to accept new subscriptions.':'The credentials are ready. Complete setup to publish the plan and connect payment notifications.'}</p>`:
+   `<p>${b.canManagePayPal?'Open PayPal settings and add the credentials from your PayPal Live app.':'Only the Plaza owner can add PayPal credentials.'}</p>`,
+  (b.canManagePayPal?act('PayPal settings','paypal-settings'):'')+
+  (b.paypalSetup.credentialsReady?' '+act(b.paypalSetup.linked?'Verify connection':'Complete PayPal setup','paypal-setup'):'')):'')+
   panel('Platform rental plans','Create a monthly plan in JMD or USD. Link a matching USD PayPal plan to offer automatic renewal.',table(['Plan','Monthly price','PayPal plan','Status','Actions'],b.plans.map(p=>[esc(p.name),esc(money(p.amount,p.currency)),esc(p.paypal_plan||empty),pill(p.enabled?'available':'retired'),act(p.enabled?'Retire':'Reopen','plan-toggle',p.id)])),act('New plan','new-plan'))+
   panel('Subscription and renewal ledger','Fygaro collects individual monthly payments. PayPal subscriptions renew automatically after approval.',
   table(['Store','Plan','Provider','Status','Paid through','Actions'],b.rentals.map(r=>[esc(r.slug),esc(r.plan_name),esc(title(r.provider)),pill(r.status),fmt(r.paid_until),r.provider==='paypal'&&r.provider_id&&!['cancelled','expired'].includes(r.status)?act('Cancel renewal','operator-cancel-rental',r.id):empty])))+

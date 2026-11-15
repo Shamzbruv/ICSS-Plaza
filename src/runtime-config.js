@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, linkSync, unlinkSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { decrypt } from './model.js';
+import { paypalSettingsKey } from './paypal-settings.js';
 
 const validKey = value => /^[a-f0-9]{64}$/i.test(value);
 
@@ -52,6 +53,10 @@ export function resolveEncryptionKey({ encryptionKey, dataDir, db, env = process
   if(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='plaza_vendor_access'").get()){
     const row=db.prepare('SELECT purpose FROM plaza_vendor_access LIMIT 1').get();
     if(row)encrypted.push(row.purpose);
+  }
+  if(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").get()){
+    const row=db.prepare('SELECT value FROM metadata WHERE key=?').get(paypalSettingsKey);
+    if(row)encrypted.push(row.value);
   }
   if (key && !validKey(key)) throw new Error('ENCRYPTION_KEY must contain exactly 64 hexadecimal characters.');
   if (!key) {

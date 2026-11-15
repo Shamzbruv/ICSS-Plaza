@@ -54,7 +54,7 @@ export async function createApp(options={}) {
  const audit=async (tenant,actor,action)=>(await run('INSERT INTO audit VALUES(?,?,?,?,?)',id(),tenant,actor,action,Date.now()));
  const durableDeveloper=developerAuth(options.developerAuthConfig,options.developerAuthFetcher);
  const access=operatorAccess({db:database,key,legacyEmail:operatorEmail,audit,provision:options.ownerProvisioning});
- const billing=createPlatformBilling({db:database,env:options.billingEnv,fetcher:options.billingFetcher,origin:baseURL,audit,notify});
+ const billing=createPlatformBilling({db:database,key,env:options.billingEnv,fetcher:options.billingFetcher,origin:baseURL,audit,notify});
  const ops=createPlatformOps({db:database,key,notify,operatorEmail:operatorEmail||ownerEmail,limit,email,audit,testAccess:options.testAccess??launchTestAccess});
  const available=billing.available;
  const unpack=t=>t?{...t,settings:JSON.parse(t.settings)}:null;
@@ -212,7 +212,14 @@ export async function createApp(options={}) {
  if(path==='/api/consultations'&&method==='POST')return respond(res,await ops.consult(req,b),201);
  if(path==='/api/billing/hooks/fygaro'&&method==='POST'){await billing.fygaroHook(b,req.raw,req.headers);return respond(res,{received:true});}
  if(path==='/api/billing/hooks/paypal'&&method==='POST'){await billing.paypalHook(b,req.headers);return respond(res,{received:true});}
- if(path==='/api/operator/overview'&&method==='GET'){requireOperator(req);return respond(res,{...(await ops.overview()),...(await mailer.stats()),database:database.kind,billing:await billing.readiness(),paypalMode:billing.paypalMode});}
+ if(path==='/api/operator/overview'&&method==='GET'){requireOperator(req);return respond(res,{...(await ops.overview()),...(await mailer.stats()),database:database.kind,...await billing.overview()});}
+ if(path==='/api/operator/billing/paypal-settings'&&method==='POST'){
+  requireOperator(req);
+  if(req.user.email!==ownerEmail)fail('Only the Plaza owner can change PayPal credentials.',403);
+  limit(req,'operator-paypal-credentials',6);
+  await durableDeveloper.verify(ownerEmail,text(b.currentPassword,128,1));
+  return respond(res,await billing.savePayPalSettings(b,req.user.id));
+ }
  if(path==='/api/operator/billing/paypal-setup'&&method==='POST'){requireOperator(req);limit(req,'operator-paypal-setup',6);return respond(res,await billing.setupPayPal(req.user.id));}
  const tenantDetail=path.match(/^\/api\/operator\/stores\/([a-f0-9]{24})$/);
  if(tenantDetail&&method==='GET'){requireOperator(req);const t=await getTenantId(tenantDetail[1]);if(!t)fail('Store not found.',404);const result={name:t.settings.name,slug:t.slug,status:t.status,published:t.settings.published,accessible:await available(t),restriction:await storefrontRestriction(t.id)||null};for(const table of ['orders','products','images','vendor_reports'])result[table]=(await one('SELECT COUNT(*) AS n FROM '+table+' WHERE tenant_id=?',t.id)).n;return respond(res,result);}
@@ -222,7 +229,7 @@ export async function createApp(options={}) {
  const consultationRoute=path.match(/^\/api\/operator\/consultations\/([a-f0-9]{24})$/);
  if(consultationRoute&&method==='PATCH'){requireOperator(req);if(b.message&&!mailer.configured)fail('Connect Resend to send an email from this console.',503);await ops.consultation(consultationRoute[1],b,req.user.id);return respond(res,{ok:true});}
  if(path==='/api/operator/test-account'&&method==='POST'){requireOperator(req);limit(req,'operator-test-account',8);return respond(res,await ops.createTest(req.user.id),201);}
- if(path==='/api/operator/billing'){requireOperator(req);if(method==='GET')return respond(res,await billing.list());if(method==='POST')return respond(res,await billing.plan(b,req.user.id),201);}
+ if(path==='/api/operator/billing'){requireOperator(req);if(method==='GET')return respond(res,{...await billing.list(),canManagePayPal:req.user.email===ownerEmail});if(method==='POST')return respond(res,await billing.plan(b,req.user.id),201);}
  const planRoute=path.match(/^\/api\/operator\/billing\/plans\/([a-f0-9]{24})$/);
  if(planRoute&&method==='PATCH'){requireOperator(req);await billing.setPlan(planRoute[1],b,req.user.id);return respond(res,{ok:true});}
 

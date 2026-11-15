@@ -6,9 +6,10 @@ import {demoStore} from './demo-data.js';
 import {renderStorefront} from './storefront.js?v=retail-1';
 import {createStoreStudio,templateChooser,templatePage,studioMediaOptions} from './store-studio.js?v=retail-1';
 import {legalPages,policyVersion} from './legal.js?v=plaza-mail-1';
-import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=paypal-launch-1';
+import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=paypal-settings-1';
 import {publicReportPage,reportReceipt,reportCase,reportQueue,operatorCase} from './trust-ui.js';
 const app=document.querySelector('#app'), modal=document.querySelector('#modal');
+modal.addEventListener('close',()=>{modal.querySelector('[data-form="paypal-settings"]')?.reset();});
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID().replaceAll('-','');
 let session={user:null,tenants:[],csrf:''},catalog={gateways:[]},state=null,tab='overview',demo=false,store=null,retailRoute={page:'home'};
@@ -278,6 +279,7 @@ document.addEventListener('submit',async e=>{
    const r=await api('/api/consultations','POST',data);const panel=form.closest('.panel');panel.innerHTML=`<span class="tag">Request received</span><h2>Thanks for reaching out.</h2><p>We’ll follow up using the contact details you provided. Your appointment is not confirmed yet.</p><p>Reference: <strong>${esc(r.reference)}</strong></p><a class="btn outline" href="/">Back to ICSS Plaza</a>`;return;
  }
  if(kind==='consultation-update'){await api('/api/operator/consultations/'+form.dataset.id,'PATCH',{...data,updated:Number(form.dataset.updated)});modal.close();await operatorPage();toast('Consultation saved.');return;}
+ if(kind==='paypal-settings'){await api('/api/operator/billing/paypal-settings','POST',data);form.reset();modal.close();await operatorPage();toast('PayPal credentials verified and saved.');return;}
  if(kind==='paypal-setup'){const result=await api('/api/operator/billing/paypal-setup','POST',{});modal.close();await operatorPage();toast(result.enabled?'PayPal is ready for monthly subscriptions.':'PayPal verified. The monthly plan is retired.');return;}
  if(kind==='rental-plan'){const amount=Math.round(Number(data.amount)*100);await api('/api/operator/billing','POST',{...data,amount});modal.close();await operatorPage();toast('Rental plan created.');return;}
  if(kind==='cancel-rental'){const path=form.dataset.operator==='true'?'/api/operator/billing/rentals/'+form.dataset.id+'/cancel':'/api/admin/'+state.id+'/billing/'+form.dataset.id+'/cancel';await api(path,'POST',{});modal.close();if(form.dataset.operator==='true')await operatorPage();else await refreshBilling();toast('Automatic renewal cancelled.');return;}
@@ -366,6 +368,17 @@ document.addEventListener('click',async e=>{
  if(action==='vendor-support'){const vendor=devData.vendors.find(t=>t.id===pid);if(!vendor)return;showModal(`<h2>Open ${esc(vendor.settings.name)}</h2><p>${vendor.test?'Practice editing this test store.':'Use this for a vendor’s support request. Edits go to the real store.'} Changes are recorded under your name. This session expires in 30 minutes.</p><form data-form="vendor-support" data-id="${esc(pid)}"><label class="field">Reason or support ticket<textarea name="reason" minlength="10" maxlength="300" required placeholder="${vendor.test?'What are you testing?':'What did the vendor ask you to change?'}"></textarea></label><div class="form-error" role="alert"></div><button type="submit" class="btn">Open vendor workspace →</button></form>`);return;}
  if(action==='vendor-support-end'&&support){if(!studio.mayExit())return;try{await api('/api/operator/vendors/'+support.tenant+'/access','DELETE',{});}finally{sessionStorage.removeItem('plaza-vendor-access-'+support.tenant);location.href='/developer?tab=vendors';}return;}
  if(action==='open-consultation'){const r=devData.consultations.requests.find(x=>x.id===pid);if(r)showModal(consultantDialog(r,devData.overview.configured));return;}
+ if(action==='paypal-settings'){
+  const data=devData?.billing;if(!data?.canManagePayPal)return;
+  const stored=data.paypalSetup.hasClientId;
+  showModal(`<h2>PayPal settings</h2><p>Copy the credentials from your ICSS Plaza app in PayPal’s <strong>Live</strong> mode. Plaza will verify and encrypt them. The saved secret is never shown.</p>
+  <form data-form="paypal-settings" autocomplete="off">
+   <label class="field">Live Client ID ${stored?'(optional)':''}<input name="clientId" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256" ${stored?'placeholder="Leave blank to keep the current ID"':'required'}></label>
+   <label class="field">Live client secret<input name="secret" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256" required></label>
+   <label class="field">Current ICSS Plaza password<input name="currentPassword" type="password" autocomplete="current-password" maxlength="128" required></label>
+   <div class="form-error" role="alert"></div><button type="submit" class="btn">Save and verify</button>
+  </form>`);return;
+ }
  if(action==='paypal-setup'){showModal(`<h2>Connect live PayPal subscriptions</h2><p>Verify the Live app, connect payment notifications, and make the US$31.39 monthly rental available to vendors. This setup does not create a customer subscription or charge anyone.</p><form data-form="paypal-setup"><div class="form-error" role="alert"></div><button type="submit" class="btn">Verify and connect PayPal</button></form>`);return;}
  if(action==='new-plan'){showModal(`<h2>New monthly rental plan</h2><p>Choose a price and currency. A PayPal plan ID is optional and must match the same USD price.</p><form data-form="rental-plan">${field('Plan name','name')}<label class="field">Monthly price<input name="amount" type="number" min="0.01" step="0.01" required></label>${select('Currency','currency','JMD',[['JMD','JMD'],['USD','USD']])}${field('PayPal plan ID (optional)','paypalPlan')}<div class="form-error"></div><button type="submit" class="btn">Create plan</button></form>`);return;}
  if(action==='plan-toggle'){const p=devData.billing.plans.find(x=>x.id===pid);await api('/api/operator/billing/plans/'+pid,'PATCH',{enabled:!p.enabled});await operatorPage();return;}

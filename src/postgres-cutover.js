@@ -2,10 +2,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { decrypt } from './model.js';
+import { paypalSettingsKey } from './paypal-settings.js';
 
 const tables = ['users','tenants','sessions','products','gateways','orders','images','audit','requests','resets'];
 const trustTables = ['vendor_reports','vendor_report_events','vendor_report_evidence','vendor_restrictions','email_outbox','email_inbound','plaza_consultations','plaza_plans','plaza_rentals','plaza_billing_events','plaza_developers','plaza_vendor_access'];
 const sourceHas = (source, table) => !!source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
+const sourcePayPal = source => sourceHas(source,'metadata')?source.prepare('SELECT value FROM metadata WHERE key=?').get(paypalSettingsKey):null;
 const marker = 'sqlite_import_v1';
 const keyPattern = /^[a-f0-9]{64}$/i;
 
@@ -17,6 +19,8 @@ export async function postgresKey(db, value) {
     ...(await db.all("SELECT data::jsonb->>'paymentConfig' AS config FROM orders WHERE data::jsonb->>'paymentConfig' IS NOT NULL")).map(row => row.config)
   ];
   const samples = [await db.one('SELECT payload FROM vendor_reports LIMIT 1'),await db.one("SELECT payload FROM email_outbox WHERE payload<>'' LIMIT 1"),await db.one('SELECT payload FROM email_inbound LIMIT 1'),await db.one('SELECT payload FROM plaza_consultations LIMIT 1'),await db.one('SELECT purpose AS payload FROM plaza_vendor_access LIMIT 1')].filter(Boolean);
+  const paypal = await db.one('SELECT value FROM metadata WHERE key=?',paypalSettingsKey);
+  if(paypal)encrypted.push(paypal.value);
   try { for (const config of encrypted) decrypt(config, key); for(const sample of samples) decrypt(sample.payload,key); }
   catch { throw new Error('ENCRYPTION_KEY does not match the existing payment records. Restore the original key.'); }
   return key;
@@ -27,7 +31,7 @@ export async function assertPostgresCutover(db, dataDir) {
   if (!existsSync(path)) return;
   const source = new DatabaseSync(path, { readOnly: true });
   try {
-    const hasData = [...tables,...trustTables].some(table => sourceHas(source,table)&&source.prepare('SELECT 1 FROM ' + table + ' LIMIT 1').get());
+    const hasData = sourcePayPal(source)||[...tables,...trustTables].some(table => sourceHas(source,table)&&source.prepare('SELECT 1 FROM ' + table + ' LIMIT 1').get());
     if (hasData && !await db.one('SELECT value FROM metadata WHERE key=?', marker)) {
       throw new Error('Existing SQLite records must be imported before enabling DATABASE_URL. See the Postgres cutover instructions.');
     }
@@ -56,6 +60,11 @@ export async function importSqlite(db, file, key) {
         }
         if ((await db.one('SELECT COUNT(*) AS n FROM ' + table)).n !== count) throw new Error('Import row-count mismatch: ' + table);
         counts[table] = count;
+      }
+      const paypal = sourcePayPal(source);
+      if(paypal){
+        if(await db.one('SELECT value FROM metadata WHERE key=?',paypalSettingsKey))throw new Error('Import requires an empty PayPal settings target.');
+        await db.run('INSERT INTO metadata VALUES(?,?)',paypalSettingsKey,paypal.value);
       }
       await postgresKey(db, key);
       await db.run('INSERT INTO metadata VALUES(?,?)', marker, new Date().toISOString());

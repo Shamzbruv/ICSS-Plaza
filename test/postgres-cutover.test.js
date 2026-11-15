@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { createPostgresPool, openPostgres, openSqlite } from '../src/database.js';
 import { assertPostgresCutover, importSqlite, postgresKey } from '../src/postgres-cutover.js';
 import { encrypt } from '../src/model.js';
+import { paypalSettings } from '../src/paypal-settings.js';
 
 const url = process.env.PLAZA_TEST_DATABASE_URL;
 test('SQLite import preserves encrypted data and images; wrong key rolls back all records', { skip: !url }, async () => {
@@ -30,7 +31,9 @@ test('SQLite import preserves encrypted data and images; wrong key rolls back al
     await pool.query(await readFile(new URL('../supabase/migrations/20261113234248_platform_ops.sql', import.meta.url), 'utf8'));
     await pool.query(await readFile(new URL('../supabase/migrations/20261114161612_vendor_support.sql', import.meta.url), 'utf8'));
     const sqlite = openSqlite(dir);
+    const paypal={client:'test-paypal-client',secret:'test-paypal-secret',updated:Date.now()};
     try {
+      await paypalSettings({db:sqlite,key}).write(paypal);
       await sqlite.run('INSERT INTO users VALUES(?,?,?,?)','owner','owner@example.com','hashed',Date.now());
       await sqlite.run('INSERT INTO tenants VALUES(?,?,?,?,?,?,?)','tenant','test-shop','owner','active',Date.now(),'{}',Date.now());
       await sqlite.run('INSERT INTO sessions VALUES(?,?,?,?)','session','owner','csrf',Date.now()+10000);
@@ -49,6 +52,7 @@ test('SQLite import preserves encrypted data and images; wrong key rolls back al
     assert.equal((await postgres.one('SELECT user_id FROM sessions WHERE token=?','session')).user_id,'owner');
     await assertPostgresCutover(postgres,dir);
     assert.equal(await postgresKey(postgres,key),key);
+    assert.deepEqual(await paypalSettings({db:postgres,key}).read(),paypal);
     await assert.rejects(importSqlite(postgres,path,key), /already has a completed/);
   } finally {
     await postgres?.close();
