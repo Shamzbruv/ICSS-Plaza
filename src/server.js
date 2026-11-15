@@ -20,11 +20,15 @@ import { randomBytes } from 'node:crypto';
 import { id, hash, fail, text, integer, passwordHash, passwordMatches, encrypt, decrypt, defaults, settings, product, totals } from './model.js';
 import { gateways, validateGateway, initiate, capturePayPal, verifyFygaro, wiHash, same } from './payments.js';
 import { resolveBaseURL, resolveRequestOrigin, resolveEncryptionKey } from './runtime-config.js';
+import { isMarketingPath, marketingPaths, pageSeo, sitemapXml, storefrontPaths } from './seo.js';
 const here=dirname(fileURLToPath(import.meta.url));
 const email=x=>{x=text(x,200,3).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))fail('Enter a valid email address.');return x;};
 export async function createApp(options={}) {
  const production=options.production ?? process.env.NODE_ENV==='production';
- const baseURL=resolveBaseURL({baseURL:options.baseURL,production});
+ const initialOrigin=resolveBaseURL({baseURL:options.baseURL,production});
+ const plazaOrigins=['https://icssplaza.com','https://www.icssplaza.com','https://icss-plaza-production.up.railway.app'];
+ const brandedDomain=production&&options.baseURL===undefined&&plazaOrigins.includes(initialOrigin);
+ const baseURL=brandedDomain?plazaOrigins[0]:initialOrigin;
  const dataDir=resolve(options.dataDir || process.env.DATA_DIR || './data');
  const databaseURL=options.databaseURL ?? process.env.DATABASE_URL;
  if(process.env.REQUIRE_POSTGRES==='1'&&!options.postgresPool&&!databaseURL) throw new Error('REQUIRE_POSTGRES is set but DATABASE_URL is missing.');
@@ -59,6 +63,38 @@ export async function createApp(options={}) {
  const storefrontRestriction=async tid=>(await one('SELECT mode FROM vendor_restrictions WHERE tenant_id=?',tid))?.mode;
  const publicGateway=g=>({id:g.provider,name:g.provider==='custom'?(decrypt(g.config,key).label||'Other approved provider'):gateways.find(x=>x.id===g.provider)?.name,mode:gateways.find(x=>x.id===g.provider)?.mode});
  async function activeGateways(t){return (await all('SELECT * FROM gateways WHERE tenant_id=? AND enabled=1',t.id)).filter(g=>gateways.find(x=>x.id===g.provider)?.currencies.includes(t.settings.currency));}
+ const visibleProducts=async tid=>(await all('SELECT id,data FROM products WHERE tenant_id=? ORDER BY created DESC',tid))
+  .map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active);
+ async function publicStore(t,{restriction,full=true}={}){
+  if(!t?.settings.published||restriction==='suspend'||!await available(t))return null;
+  if(restriction===undefined)restriction=await storefrontRestriction(t.id);
+  if(restriction==='suspend')return null;
+  const {designDraft,features,...publicSettings}=t.settings;
+  const store={id:t.id,slug:t.slug,settings:publicSettings,features:liveFeatures(t.settings),
+   checkoutBlocked:restriction==='checkout',products:await visibleProducts(t.id)};
+  if(full){store.reviews=await reviews(t.id,true);store.gateways=(await activeGateways(t)).map(publicGateway);}
+  return store;
+ }
+ let sitemapCache=null;
+ async function sitemap(){
+  if(sitemapCache?.until>Date.now())return sitemapCache.xml;
+  const paths=[...marketingPaths];
+  let after='';
+  while(paths.length<50000){
+   const rows=await all("SELECT t.*, r.mode AS restriction FROM tenants t LEFT JOIN vendor_restrictions r ON r.tenant_id=t.id WHERE t.slug>? AND t.slug NOT LIKE 'plaza-test-%' AND t.status NOT IN ('suspended','cancelled') AND (r.mode IS NULL OR r.mode<>'suspend') ORDER BY t.slug LIMIT 100",after);
+   if(!rows.length)break;
+   for(const row of rows){
+    const store=await publicStore(unpack(row),{restriction:row.restriction,full:false});
+    if(store)for(const path of storefrontPaths(store))paths.push(path);
+    if(paths.length>=50000)break;
+   }
+   if(rows.length<100)break;
+   after=rows.at(-1).slug;
+  }
+  const xml=sitemapXml(baseURL,paths);
+  sitemapCache={xml,until:Date.now()+60000};
+  return xml;
+ }
  function owner(req,t){if(!req.user || !t || t.owner!==req.user.id)fail('Store not found or access denied.',404);return t;}
  function requireUser(req){if(!req.user)fail('Please sign in.',401);}
  function requireOperator(req){requireUser(req);if(!req.operator)fail('Operator access required.',403);}
@@ -127,12 +163,28 @@ export async function createApp(options={}) {
  if(production)res.setHeader('Strict-Transport-Security','max-age=31536000');
  try {
  const u=new URL(req.url,baseURL || 'http://localhost'),path=u.pathname,method=req.method;
+ const read=['GET','HEAD'].includes(method);
+ const requestOrigin=resolveRequestOrigin({host:req.headers.host,production});
+ const alias=brandedDomain&&requestOrigin!==baseURL&&plazaOrigins.includes(requestOrigin);
+ if(read&&alias&&!path.startsWith('/api/')){
+  res.writeHead(308,{Location:baseURL+path+u.search,'Cache-Control':'public, max-age=3600'});return res.end();
+ }
+ if(read&&path==='/robots.txt'){
+  const robots='User-agent: *\nAllow: /\n'+(baseURL?'Sitemap: '+baseURL+'/sitemap.xml\n':'');
+  res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'public, max-age=300'});
+  return res.end(method==='HEAD'?undefined:robots);
+ }
+ if(read&&path==='/sitemap.xml'&&baseURL){
+  const xml=await sitemap();
+  res.writeHead(200,{'Content-Type':'application/xml; charset=utf-8','Cache-Control':'public, max-age=60'});
+  return res.end(method==='HEAD'?undefined:xml);
+ }
  const token=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('plaza_session='))?.slice(14);
  const s=token?(await one("SELECT s.*,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>? AND NOT EXISTS (SELECT 1 FROM tenants t WHERE t.owner=u.id AND t.slug LIKE 'plaza-test-%' AND (t.trial_end<=? OR t.status<>'trial'))",hash(token),Date.now(),Date.now())):null;
  if(s){req.user={id:s.user_id,email:s.email};req.csrf=s.csrf;req.sessionHash=hash(token);req.operator=await access.isOperator(req.user);}
  const webhook=/^\/api\/payments\/[a-f0-9]+\/fygaro\/hook$/.test(path)||path==='/api/webhooks/resend'||/^\/api\/billing\/hooks\/(fygaro|paypal)$/.test(path);
- if(!['GET','HEAD'].includes(method)){
- if(!webhook){const origin=resolveRequestOrigin({baseURL,host:req.headers.host,production});if(!origin||req.headers.origin!==origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
+ if(!read){
+ if(!webhook){const origin=alias?requestOrigin:baseURL||requestOrigin;if(!origin||req.headers.origin!==origin)fail('Request origin rejected.',403);if(s&&req.headers['x-csrf-token']!==s.csrf)fail('Refresh the page and try again.',403);if(!String(req.headers['content-type']||'').startsWith('application/json'))fail('JSON required.',415);}
  const mediaUpload=method==='POST'&&/^\/api\/admin\/[a-f0-9]{24}\/images$/.test(path);
  if(mediaUpload){
   requireUser(req);
@@ -230,7 +282,9 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(path==='/api/reset'&&method==='POST'){limit(req,'reset',20);const resetHash=hash(text(b.token,100,1));await tx(async ()=>{const r=await one('SELECT * FROM resets WHERE token=? AND expires>?',resetHash,Date.now());if(!r)fail('Reset token is invalid or expired.');await run('UPDATE users SET password=? WHERE id=?',passwordHash(b.password),r.user_id);(await run('DELETE FROM sessions WHERE user_id=?',r.user_id));await run('DELETE FROM resets WHERE user_id=?',r.user_id);const user=await one('SELECT email FROM users WHERE id=?',r.user_id);await notify('password_changed',resetHash,user?.email);},'password-reset');return respond(res,{ok:true});}
  let m;
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)$/))&&method==='GET'){
- const t=(await getTenant(m[1]));if(!await available(t)||!t.settings.published)fail('This store is not currently available.',404);const restriction=await storefrontRestriction(t.id);if(restriction==='suspend')fail('This store is not currently available.',404);const {designDraft,features,...publicSettings}=t.settings;return respond(res,{id:t.id,slug:t.slug,settings:publicSettings,features:liveFeatures(t.settings),reviews:await reviews(t.id,true),checkoutBlocked:restriction==='checkout',products:(await all('SELECT * FROM products WHERE tenant_id=? ORDER BY created DESC',t.id)).map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active),gateways:(await activeGateways(t)).map(publicGateway)});
+ const store=await publicStore(await getTenant(m[1]));
+ if(!store)fail('This store is not currently available.',404);
+ return respond(res,store);
  }
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)\/quote$/))&&method==='POST'){
   limit(req,'checkout-quote',60);
@@ -499,14 +553,28 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(path==='/developer/demo'||path==='/developer/demo/')return redirect(res,'/developer');
  if(path.startsWith('/api/'))fail('Endpoint not found.',404);
  if(method!=='GET'&&method!=='HEAD')fail('Method not allowed.',405);
- const publicDir=resolve(here,'../public');const page=path==='/'||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|consultation|reset|report|legal(?:\/[a-z-]+)?|(?:templates\/[a-z-]+|s\/[a-z0-9-]+)(?:\/(?:shop|about|contact|journal|reviews|bag|product\/[a-z0-9-]+|policies\/[a-z-]+|page\/[0-9]+))?)\/?$/.test(path)?'/index.html':path;
+ const cleanPath=path.replace(/\/$/,'')||'/';
+ const storefront=cleanPath.match(/^\/s\/([a-z0-9-]+)(?:\/.*)?$/);
+ const application=isMarketingPath(cleanPath)||storefront||/^\/(demo|admin|login|signup|operator|developer(?:\/vendors\/[a-f0-9]{24})?|test-access|reset|report|legal(?:\/[a-z-]+)?|templates\/[a-z-]+(?:\/(?:shop|about|contact|journal|reviews|bag|product\/[a-z0-9-]+|policies\/[a-z-]+|page\/[0-9]+))?)$/.test(cleanPath);
+ if(path==='/index.html'||application&&path!==cleanPath){
+  res.writeHead(308,{Location:(path==='/index.html'?'/':cleanPath)+u.search,'Cache-Control':'public, max-age=3600'});return res.end();
+ }
+ const publicDir=resolve(here,'../public');const page=application?'/index.html':path;
  const file=resolve(publicDir,'.'+page);if(!file.startsWith(publicDir+'/')||!existsSync(file))fail('Page not found.',404);
  const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
  const ext=extname(file);
+ if(page==='/index.html'){
+  const store=storefront?await publicStore(await getTenant(storefront[1]),{full:false}):undefined;
+  if(store&&/\/reviews$/.test(path))store.reviews=await reviews(store.id,true);
+  const seo=pageSeo({path,search:u.search,origin:baseURL,store,verify:process.env.GOOGLE_SITE_VERIFICATION});
+  if(!seo.index)res.setHeader('X-Robots-Tag','noindex, follow');
+  res.writeHead(seo.status,{'Content-Type':types[ext],'Cache-Control':'no-cache'});
+  return res.end(method==='HEAD'?undefined:readFileSync(file,'utf8').replace('<!-- PLAZA_SEO_HEAD -->',()=>seo.head).replace('<!-- PLAZA_INITIAL_CONTENT -->',()=>seo.body));
+ }
+ if(ext==='.html')res.setHeader('X-Robots-Tag','noindex, follow');
  if(page==='/store-canvas.html')res.setHeader('X-Frame-Options','SAMEORIGIN');
  if(page==='/store-canvas.html')res.setHeader('Content-Security-Policy',res.getHeader('Content-Security-Policy').replace("frame-ancestors 'none'","frame-ancestors 'self'"));
  res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':['.html','.js','.css'].includes(ext)?'no-cache':'public, max-age=3600'});if(method==='HEAD')return res.end();
- if(page==='/index.html'){const origin=(baseURL||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));return res.end(readFileSync(file,'utf8').replaceAll('__PLAZA_ORIGIN__',origin));}
  return res.end(readFileSync(file));
  }catch(e){if(!res.headersSent){if(!e.status)console.error('Request failed:',e.code||e.name);respond(res,{error:e.status?e.message:'Something went wrong. Please try again.'},e.status||500);}else res.end();}
  });

@@ -1,0 +1,22 @@
+.seo-guide{padding-block:24px 72px}
+.seo-guide>.dev-hero h1{max-width:22ch}
+.seo-guide>.dev-hero p{max-width:62ch}
+.seo-guide>.dev-hero .row{margin-top:22px}
+.seo-guide>.dev-hero .btn.outline{border-color:#b2cedc;color:#f2fbff}
+.seo-guide>.dev-hero .btn.outline:hover{background:#e4f1f6;color:#102e44}
+.seo-guide-body{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(240px,1fr);gap:clamp(24px,6vw,88px);align-items:start;margin-top:clamp(40px,8vw,84px)}
+.seo-guide-body article>section+section{margin-top:36px}
+.seo-guide-body article h2{font-size:clamp(1.4rem,3vw,2.05rem);line-height:1.14;margin:0 0 12px}
+.seo-guide-body article p{font-size:1.08rem;line-height:1.68;max-width:64ch;margin:0}
+.seo-guide-body aside h2{font-size:1.35rem}
+.seo-guide-body aside li+li{margin-top:13px}
+.seo-guide-body aside ul{padding-left:1.2em}
+.seo-guide-body aside a,.feature h3 a,.feature p a,.payment-note a{text-decoration:underline;text-underline-offset:3px}
+.seo-gallery{padding:54px 0 0}
+.seo-gallery .template-card h2{font-size:1.16rem;line-height:1.25;margin:0 0 6px}
+.seo-gallery .template-card img{width:100%;height:auto;aspect-ratio:8/5}
+@media(max-width:700px){.seo-guide-body{grid-template-columns:1fr}.seo-guide{padding-bottom:42px}}
+@media(max-width:960px){
+ .site-nav{height:auto;min-height:78px;flex-wrap:wrap;gap:10px;padding-block:16px 12px}
+ .site-nav .nav-links{order:3;display:flex;flex:0 0 100%;gap:clamp(14px,3vw,28px);overflow-x:auto;white-space:nowrap;padding:6px 3px}
+}

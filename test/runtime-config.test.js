@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
+import { request } from 'node:http';
 import { resolveBaseURL, resolveRequestOrigin, resolveEncryptionKey } from '../src/runtime-config.js';
 import { encrypt } from '../src/model.js';
 
@@ -59,10 +60,10 @@ test('existing encrypted records require the original key, including historical 
   assert.equal(f.db.prepare('SELECT data FROM orders').get().data,JSON.stringify({paymentConfig:encrypted}));
 });
 
-for (const hasDomain of [true, false]) test(`production boots with no BASE_URL/key and ${hasDomain ? 'a provided domain' : 'no public domain at all'}`, async t => {
+for (const domain of ['plaza-test.up.railway.app',null,'icss-plaza-production.up.railway.app']) test(`production boots with no BASE_URL/key and ${domain||'no public domain'}`, async t => {
   const dataDir=mkdtempSync(join(tmpdir(),'plaza-production-'));
-  const env={...process.env,NODE_ENV:'production',RAILWAY_PUBLIC_DOMAIN:'plaza-test.up.railway.app',DATA_DIR:dataDir,PORT:'0'};
-  if (!hasDomain) delete env.RAILWAY_PUBLIC_DOMAIN;
+  const env={...process.env,NODE_ENV:'production',DATA_DIR:dataDir,PORT:'0'};
+  if(domain)env.RAILWAY_PUBLIC_DOMAIN=domain;else delete env.RAILWAY_PUBLIC_DOMAIN;
   delete env.BASE_URL; delete env.ENCRYPTION_KEY; delete env.OPERATOR_EMAIL; delete env.OPERATOR_PASSWORD;
   // Port zero is passed to createApp's real HTTP server so tests do not reserve a fixed port.
   const script="import {createApp} from './src/server.js'; const {server}=await createApp(); server.listen(0,'127.0.0.1',()=>console.log('READY '+server.address().port));";
@@ -76,8 +77,20 @@ for (const hasDomain of [true, false]) test(`production boots with no BASE_URL/k
   });
   const health=await fetch(`http://127.0.0.1:${port}/api/health`);
   assert.equal(health.status,200); assert.deepEqual(await health.json(),{ok:true});
-  const browserOrigin=hasDomain?'https://plaza-test.up.railway.app':`https://127.0.0.1:${port}`;
+  const branded=domain==='icss-plaza-production.up.railway.app';
+  const browserOrigin=branded?'https://icssplaza.com':domain?'https://'+domain:`https://127.0.0.1:${port}`;
   const landing=await fetch(`http://127.0.0.1:${port}/`);assert.equal(landing.status,200);
+  if(branded){
+   assert.match(await landing.text(),/<link rel="canonical" href="https:\/\/icssplaza\.com\/">/);
+   for(const host of ['www.icssplaza.com',domain]){
+    const alias=await new Promise((resolve,reject)=>{
+     request({port,hostname:'127.0.0.1',path:'/online-store-pricing?from=alias',method:'HEAD',headers:{Host:host}},resolve).on('error',reject).end();
+    });
+    alias.resume();
+    assert.equal(alias.statusCode,308);
+    assert.equal(alias.headers.location,'https://icssplaza.com/online-store-pricing?from=alias');
+   }
+  }
   const signup=await fetch(`http://127.0.0.1:${port}/api/signup`,{method:'POST',headers:{Origin:browserOrigin,'Content-Type':'application/json'},body:JSON.stringify({email:'smoke@example.com',password:'secure-smoke-password',name:'Smoke store',slug:'smoke-store',acceptTerms:true,template:"beauty"})});
   assert.equal(signup.status,201);assert.match(signup.headers.get('set-cookie'),/; Secure/);
   const hostile=await fetch(`http://127.0.0.1:${port}/api/login`,{method:'POST',headers:{Origin:'https://attacker.example','X-Forwarded-Host':'attacker.example','Content-Type':'application/json'},body:'{}'});assert.equal(hostile.status,403);

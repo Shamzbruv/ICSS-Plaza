@@ -256,11 +256,62 @@ test('vendor growth tools apply at checkout and keep drafts, private data, and u
  assert.deepEqual((await req(shop)).data.reviews,[{name:candidate.name,rating:5,comment:candidate.comment}]);
 });
 
-test('storefront subpages serve the storefront app directly without replacing API routes',async()=>{
- for(const p of ['/templates/wholesale/shop','/templates/wholesale/product/sample-0','/s/example/store','/s/example/about','/s/example/contact','/s/example/bag','/s/example/policies/shipping']){
+test('public pages are searchable in the initial HTML with unique metadata and stable URLs',async()=>{
+ const pages=[['/','Your business'],['/sell-online-jamaica','How to sell products online in Jamaica'],['/online-store-templates','Choose an ecommerce template'],['/ecommerce-payments-jamaica','How to take payments'],['/online-store-pricing','What does it cost'],['/consultation','Let’s talk about your online store']];
+ const titles=new Set();
+ for(const [path,heading] of pages){
+  const response=await fetch(base+path+'?utm_source=verification');
+  assert.equal(response.status,200,path);
+  assert.equal(response.headers.get('x-robots-tag'),null,path);
+  const html=await response.text();
+  assert.ok(html.includes('<link rel="canonical" href="'+origin+path+'">'),path);
+  assert.ok(html.includes('<h1>'+heading),path);
+  assert.match(html,/name="description" content="[^"]+"/);
+  assert.match(html,/property="og:locale" content="en_JM"/);
+  assert.match(html,/href="\/consultation"/);
+  titles.add(html.match(/<title>([^<]+)<\/title>/)[1]);
+  const json=JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1]);
+  assert.ok(json['@graph'].some(x=>x['@type']===(path==='/'?'Organization':'BreadcrumbList')));
+ }
+ assert.equal(titles.size,pages.length);
+ const gallery=await (await fetch(base+'/online-store-templates')).text();
+ assert.match(gallery,/href="\/templates\/wholesale"/);
+ assert.match(gallery,/href="\/templates\/fashion"/);
+ assert.match(gallery,/href="\/templates\/yard"/);
+ const redirect=await fetch(base+'/sell-online-jamaica/?source=keep',{redirect:'manual'});
+ assert.equal(redirect.status,308);
+ assert.equal(redirect.headers.get('location'),'/sell-online-jamaica?source=keep');
+});
+
+test('crawl files expose published stores and products, with private or missing routes excluded',async()=>{
+ const store='/s/studio-wholesale';
+ const {data}=await req('/api/stores/studio-wholesale');
+ const productPath=store+'/product/'+data.products[0].id;
+ const robots=await fetch(base+'/robots.txt');
+ assert.match(robots.headers.get('content-type'),/text\/plain/);
+ assert.ok((await robots.text()).includes('Sitemap: '+origin+'/sitemap.xml'));
+ const sitemap=await fetch(base+'/sitemap.xml');
+ assert.match(sitemap.headers.get('content-type'),/application\/xml/);
+ const xml=await sitemap.text();
+ for(const path of ['/','/sell-online-jamaica','/consultation',store+'/shop',productPath])assert.ok(xml.includes('<loc>'+origin+path+'</loc>'),path);
+ assert.doesNotMatch(xml,/alice-store|bob-store|plaza-test-|\/templates\/wholesale|\/bag|\/developer/);
+ for(const p of ['/templates/wholesale/shop','/templates/wholesale/product/sample-0','/developer','/signup',store+'/bag',store+'/shop?q=juice']){
   const response=await fetch(base+p);
-  if(p.endsWith('/store'))assert.equal(response.status,404);
-  else{assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/text\/html/);assert.match(await response.text(),/retail\.css/);}
+  assert.equal(response.status,200,p);
+  assert.match(response.headers.get('x-robots-tag'),/noindex/,p);
+ }
+ for(const p of ['/s/example/store','/s/example/about','/s/bob-store',store+'/product/nonexistent',store+'/page/99']){
+  const response=await fetch(base+p);
+  assert.equal(response.status,404,p);
+  assert.match(response.headers.get('content-type'),/text\/html/);
+  assert.match(response.headers.get('x-robots-tag'),/noindex/);
  }
  assert.equal((await req('/api/stores/example/shop')).status,404);
+ const response=await fetch(base+productPath);
+ assert.equal(response.status,200);
+ const html=await response.text();
+ assert.match(html,/<h1>Case of canned juice<\/h1>/);
+ const graph=JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1])['@graph'];
+ const offer=graph.find(x=>x['@type']==='Product').offers;
+ assert.equal(offer.url,origin+productPath);assert.equal(offer.priceCurrency,'JMD');assert.equal(offer.price,'50.00');
 });
