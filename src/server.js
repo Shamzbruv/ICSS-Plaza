@@ -470,7 +470,7 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  }
  if(action==='sample-products'&&method==='POST'){
   const template=getTemplate(t.settings.template);
-  if(!template)fail('This store does not have template sample products.',404);
+  if(!template?.items.length)fail('This store does not have template sample products.',404);
   if(await one('SELECT id FROM products WHERE tenant_id=? LIMIT 1',t.id))fail('Sample products can only be added to an empty catalogue.',409);
   for(const [index,p] of template.items.entries()){
    const sample=product({...p,variants:p.variants?.map(v=>({...v,stock:0})),sku:'SAMPLE-'+(index+1),stock:0,active:false,featured:index===0,description:'Replace this example with a description of your own product.'});

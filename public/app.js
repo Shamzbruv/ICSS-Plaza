@@ -1,10 +1,12 @@
-import {footer,nav,mini,landing,marketingPage} from './marketing.js?v=plaza-trial-1';
+import {footer,nav,mini,landing,marketingPage} from './marketing.js?v=plaza-launch-2';
 import {pathInStore,retailURL} from './retail-route.js?v=retail-1';
 import {featurePanel,featureDialog,featureRequest} from './vendor-features.js?v=growth-1';
-import {workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=growth-1';
+import {workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=plaza-launch-2';
 import {demoStore} from './demo-data.js';
 import {renderStorefront} from './storefront.js?v=retail-1';
-import {createStoreStudio,templateChooser,templatePage,studioMediaOptions} from './store-studio.js?v=retail-1';
+import {createStoreStudio,templatePage,studioMediaOptions} from './store-studio.js?v=plaza-launch-2';
+import {signupExperience,updateSignupSelection,showSignupStep,suggestStoreSlug,launchpad} from './launch-experience.js?v=plaza-launch-2';
+import {getTemplate} from './store-templates.js?v=plaza-launch-1';
 import {legalPages,policyVersion} from './legal.js?v=paypal-trial-1';
 import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=paypal-trial-1';
 import {publicReportPage,reportReceipt,reportCase,reportQueue,operatorCase} from './trust-ui.js';
@@ -38,11 +40,21 @@ function errorPage(error){app.innerHTML=`<div class="error-page">${logo()}${illu
 function legal(){const key=location.pathname.split('/')[2]||'terms',p=legalPages[key];if(!p)return errorPage(Error('Policy not found.'));document.title=p.title+' | ICSS Plaza';const updated=p.updated||policyVersion;app.innerHTML=nav()+`<article class="legal"><div class="eyebrow">iCreate Solutions & Services · Jamaica</div><h1>${p.title}</h1><p>Updated <time datetime="${esc(updated)}">${esc(new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'UTC'}).format(new Date(updated)))}</time></p><nav class="legal-nav">${Object.entries(legalPages).map(([k,v])=>`<a class="tag" href="/legal/${k}">${v.title}</a>`).join('')}</nav>${p.sections.map(([h,b])=>`<h2>${esc(h)}</h2><p class="preline">${esc(b)}</p>`).join('')}${p.links?.length?`<nav class="legal-resources" aria-label="Related resources">${p.links.map(([label,url])=>`<a href="${esc(url)}">${esc(label)}</a>`).join('')}</nav>`:''}</article>`+footer();}
 function authPage(kind){const signup=kind==='signup',reset=kind==='reset';if(signup)return signupPage();app.innerHTML=`<main class="auth">${logo()}<h1>${signup?'Make room for your business.':reset?'Choose a new password.':'Welcome back.'}</h1><p>${signup?'Create your store and explore a 14-day trial. No payment card needed.':reset?'Enter the one-time token provided by support.':'Sign in to manage your store.'}</p><form data-form="${kind}">${signup?field('Store name','name','')+field('Store address','slug','','text','Your store will live at /s/your-store. Use letters, numbers and hyphens.'):''}${!reset?field('Email address','email','','email'):field('Reset token','token',new URLSearchParams(location.hash?.slice(1)||'').get('token')||'')}${field('Password','password','','password',signup||reset?'Use at least 12 characters.':'')}${signup?`<label class="field check"><input name="acceptTerms" type="checkbox" required><span>I accept the <a href="/legal/terms" target="_blank">platform terms</a> and <a href="/legal/vendor-agreement" target="_blank" rel="noopener">independent vendor agreement</a>, and have read the <a href="/legal/privacy" target="_blank">privacy notice</a>.</span></label>`:''}<div class="form-error"></div><button class="btn" type="submit">${signup?'Create my store →':reset?'Reset password':'Sign in →'}</button></form><a class="small" href="${signup?'/login':'/signup'}">${signup?'Already have an account? Sign in':'New here? Create your store'}</a>${!signup?'<p class="small">Need help signing in? <a href="mailto:icreatesolutions.ja@gmail.com">Contact support</a> for a verified one-time reset token. <a href="/reset">Use reset token</a></p>':''}<a class="small" href="/demo">Explore the dashboard demo first ↗</a></main>`;}
 function signupPage(){
- document.title='Choose your storefront | ICSS Plaza';
- app.innerHTML=`<main class="signup-studio"><header class="signup-header">${logo()}<a href="/login">Already have a store? Sign in →</a></header><div class="signup-hero"><div class="eyebrow">ICSS Plaza · Open your store</div><h1>Make room for your business.</h1><p>Start with a storefront built for what you sell. Try it free for 14 days. No payment card is required to start.</p></div>
- <form data-form="signup">${templateChooser()}<section class="signup-details"><div class="eyebrow">02 · Make it yours</div><h2>Set up your shop.</h2><div class="form-grid">${field('Store name','name')}${field('Store address','slug','','text','Your link will be /s/your-store. Use letters, numbers and hyphens.')}${field('Email address','email','','email')}${field('Password','password','','password','Use at least 12 characters.')}</div><label class="field check"><input name="acceptTerms" type="checkbox" required><span>I accept the <a href="/legal/terms" target="_blank" rel="noopener">platform terms</a> and <a href="/legal/vendor-agreement" target="_blank" rel="noopener">independent vendor agreement</a>, and have read the <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>.</span></label><div class="form-error" role="alert"></div><button class="btn" type="submit">Open my Store Designer →</button></section></form></main>`;
- const selected=new URLSearchParams(location.search).get('template');
- app.querySelectorAll('input[name=template]').forEach(input=>{input.checked=input.value===selected;});
+ document.title='Create your online store | ICSS Plaza';
+ const requested=new URLSearchParams(location.search).get('template');
+ const selected=getTemplate(requested)?.id;
+ app.innerHTML=signupExperience({logo:logo(),selected,details:`<section class="start-account panel" aria-label="Store and account details">
+  <div class="eyebrow">ABOUT YOUR BUSINESS</div><h3>Name and web address</h3>
+  <label class="field">Store name<input name="name" required maxlength="180" autocomplete="organization" placeholder="e.g. Kingston Home Goods"></label>
+  <label class="field">Store address<span class="start-address"><span>icssplaza.com/s/</span><input name="slug" required minlength="3" maxlength="48" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="your-store" aria-describedby="address-hint" autocapitalize="none" spellcheck="false"></span></label>
+  <p class="start-field-note" id="address-hint">Use lowercase letters, numbers and hyphens. This will be the address you share with customers.</p>
+  <div class="eyebrow">YOUR SIGN-IN</div><h3>Create your account</h3>
+  <label class="field">Email address<input name="email" type="email" autocomplete="email" maxlength="200" required></label>
+  <label class="field">Password<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" aria-describedby="password-hint" required></label>
+  <p class="start-field-note" id="password-hint">Use at least 12 characters.</p>
+  <label class="field check"><input name="acceptTerms" type="checkbox" required><span>I accept the <a href="/legal/terms" target="_blank" rel="noopener">platform terms</a> and <a href="/legal/vendor-agreement" target="_blank" rel="noopener">vendor agreement</a>, and have read the <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>.</span></label>
+  <div class="form-error" role="alert"></div>
+ </section>`});
 }
 function loadDemo(){let d=local.get(demoKey,null);if(!d||!d.settings||!Array.isArray(d.products))d=demoStore();state=d;}
 function saveDemo(){local.set(demoKey,state);}
@@ -65,8 +77,7 @@ function shell(content){
  <div class="row vendor-head-actions">${button('Edit storefront','studio-open','sm')}${button('Preview storefront','preview','outline sm')}${!demo&&!support?button(published?'Unpublish':'Publish store',published?'unpublish':'publish','outline sm'):''}</div></header>${content}</main></div>`;
 }
 function overview(){
- const s=state.settings,checks=[[state.products.some(p=>p.active),'Add your products','products'],[!!s.logo,'Upload your logo','media'],[!!s.address&&!!s.contactEmail,'Add seller details','content'],[!!s.shipping&&!!s.returns&&!!s.privacy&&!!s.terms,'Review your policies','policies'],...(!support?[[!!s.defaultPayment,'Set up a payment method','payments']]:[])];
- const setup=`<section class="panel vendor-panel"><h2>Your store, step by step.</h2><p>Get your brand and catalogue ready for shoppers.</p><div class="checklist">${checks.map(([done,label,t])=>`<button type="button" data-tab="${t}" class="${done?'done':''}">${done?'✓':'○'} &nbsp;${label} →</button>`).join('')}</div></section>`;
+ const setup=support?`<section class="panel vendor-panel"><h2>Storefront support</h2><p>Review the store with the vendor. Changes to products or inventory can affect their live shop.</p><div class="checklist"><button type="button" data-tab="appearance">Open Store Designer →</button><button type="button" data-tab="products">Review products →</button></div></section>`:launchpad(state,{demo,publicOrigin:location.origin});
  return vendorDashboard({state,money,support:!!support,demo,setup,previewButton:button('Preview storefront','preview','outline sm')});
 }
 function productsPanel(){return `<section class="panel vendor-panel"><div class="section-head" style="margin-bottom:15px"><div><h2>Your collection</h2><p class="small">Prices use ${esc(state.settings.currency)}. Add variants for size, colour or other choices.</p></div>${button('+ Add product','add-product','sm')}</div>${state.products.length?'<div class="vendor-list-tools"><label class="field">Find a product<input type="search" data-vendor-filter placeholder="Search name, SKU or category"></label></div>':''}<div class="table-scroll"><table class="vendor-table"><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr></thead><tbody>${state.products.map(p=>`<tr data-vendor-row data-filter="${esc([p.name,p.sku,p.category].join(' '))}"><td><div class="table-product"><img class="thumb" src="${esc(p.image||'/assets/collection.svg')}" alt=""><div><strong>${esc(p.name)}</strong><p class="small">${esc(p.sku)}</p></div></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td>${p.variants.length?p.variants.reduce((a,v)=>a+v.stock,0):p.stock}</td><td><span class="tag ${p.active?'':'warn'}">${p.active?'Active':'Hidden'}</span></td><td>${button('Edit','edit-product','outline sm',`data-id="${esc(p.id)}"`)}</td></tr>`).join('')}</tbody></table>${state.products.length?'':`<div class="empty">${illustration('empty-products')}<p>Your next best seller starts here. Add your first product.</p></div>`}<p class="vendor-filter-empty" hidden>No matches. Try a different search.</p></div></section>`;}
@@ -211,7 +222,15 @@ function download(data,name){const blob=new Blob([JSON.stringify(data,null,2)],{
 document.addEventListener('submit',async e=>{
  const form=e.target;if(!form.matches('[data-form]'))return;e.preventDefault();const kind=form.dataset.form,data=formData(form),submit=form.querySelector('[type=submit]');if(submit)submit.disabled=true;
  try{
- if(['login','signup','reset'].includes(kind)){await api('/api/'+kind,'POST',data);if(kind==='reset'){toast('Password updated. Please sign in.');location.href='/login';}else location.href=kind==='signup'?'/admin?tab=appearance':kind==='login'&&new URLSearchParams(location.search).get('next')==='templates'?'/developer?tab=templates':kind==='login'&&new URLSearchParams(location.search).get('next')==='developer'?'/developer':'/admin';return;}
+ if(kind==='signup'){
+  if(form.dataset.signupStep!=='details'){
+   if(!getTemplate(data.template)){form.querySelector('.start-error').textContent='Choose a starting point above, or select Blank canvas.';form.querySelector('input[name=template]')?.focus();return;}
+   showSignupStep(form,'details');return;
+  }
+  for(const field of form.querySelectorAll('[data-signup-pane="details"] input'))if(!field.reportValidity())return;
+  await api('/api/signup','POST',data);location.href='/admin';return;
+ }
+ if(['login','reset'].includes(kind)){await api('/api/'+kind,'POST',data);if(kind==='reset'){toast('Password updated. Please sign in.');location.href='/login';}else location.href=kind==='login'&&new URLSearchParams(location.search).get('next')==='templates'?'/developer?tab=templates':kind==='login'&&new URLSearchParams(location.search).get('next')==='developer'?'/developer':'/admin';return;}
  if(kind==='content'){data.customPages=[...form.querySelectorAll('.custom-page')].map(p=>({title:p.querySelector('[name=pageTitle]').value,content:p.querySelector('[name=pageContent]').value}));delete data.pageTitle;delete data.pageContent;await saveSettings(data);return;}
  if(kind==='shop-feature'){
   await saveShopFeature(form.dataset.key,featureRequest(form.dataset.key,form.dataset.id,data,state.settings.features,uid));return;
@@ -320,7 +339,7 @@ document.addEventListener('submit',async e=>{
  if(kind==='request'){
  if(!data.confirm)throw Error('Please confirm your request.');await adminMutation('requests','POST',{kind:form.dataset.kind,note:data.note});modal.close();toast('Your request was recorded.');dashboard();return;
  }
- }catch(error){const box=form.querySelector('.form-error');if(box){box.className='form-error error';box.textContent=error.message;}else toast(error.message);}finally{if(submit)submit.disabled=false;}
+ }catch(error){const box=(kind==='signup'?form.querySelector('.start-account .form-error'):null)||form.querySelector('.form-error');if(box){box.className='form-error error';box.textContent=error.message;}else toast(error.message);}finally{if(submit)submit.disabled=false;}
 });
 function showOrderReceipt(o){showModal(`${o.paid?illustration('payment-success'):''}<h2>${demo?'Sample order placed':'Order received'}</h2><p>Reference: <strong>${esc(o.short_id||o.id)}</strong></p><div class="note ${o.paid?'':'warn'}">${o.paid?'Payment confirmed.':demo?'Demo order saved. View it under Orders in the demo dashboard. No payment was taken.':'Your order is recorded. Payment is pending verification. Keep this order reference.'}</div><p>Total: ${money(o.total,o.currency)}${o.discount?' · Discount '+money(o.discount,o.currency):''}</p>${!demo&&o.paid&&o.state==='fulfilled'?(o.review?'<p>Your review has been submitted.</p>':`<details><summary>Write a verified review</summary><form data-form="submit-review" data-id="${esc(o.id)}">${select('Rating','rating','5',[['5','5 stars'],['4','4 stars'],['3','3 stars'],['2','2 stars'],['1','1 star']])}${field('Display name (optional)','name')}${area('Your review','comment')}<div class="form-error"></div><button class="btn sm" type="submit">Submit review</button></form></details>`):''}${!demo?`<p>Seller: <strong>${esc(o.seller?.name||store.settings.name)}</strong>. ${(o.seller?.email||store.settings.contactEmail)?`<a href="mailto:${esc(o.seller?.email||store.settings.contactEmail)}">Contact seller</a> · `:''}<a href="${esc(reportLink(o.slug||store.slug,o.short_id||''))}">Report this vendor</a></p>`:''}${o.policySnapshot?`<details><summary>Seller policies at the time of order</summary>${[['terms','Sales terms'],['shipping','Delivery'],['returns','Returns and refunds'],['privacy','Privacy notice']].map(([k,label])=>`<h3>${label}</h3><p class="preline">${esc(o.policySnapshot[k])}</p>`).join('')}</details>`:''}${o.payment?.instructions?`<p class="preline">${esc(o.payment.instructions)}</p>`:''}${o.payment?.url?`<a class="btn" href="${esc(o.payment.url)}" rel="noreferrer">Continue to payment provider ↗</a>`:''}${o.paymentError?`<p>${esc(o.paymentError)}</p>`:''}${!demo?(!o.paid&&!o.payment?.url&&o.state!=='cancelled'?button('Retry payment setup','retry-payment','outline sm'):'')+button('Refresh payment status','order-status','outline sm'):`<a class="btn outline" href="/demo?tab=orders">View demo orders →</a>`}`);}
 function publishDialog(){showModal(`<h2>Publish as an independent vendor</h2><p>Your business is responsible for sales, fulfilment, returns and refunds. Your store policies must be accurate.</p><form data-form="publish-vendor"><label class="field check"><input name="vendorAcknowledgement" type="checkbox" required><span>I agree to the <a href="/legal/vendor-agreement" target="_blank" rel="noopener">independent vendor agreement</a> and confirm that my store details and policies are current.</span></label><div class="form-error" role="alert"></div><button class="btn" type="submit">Publish store</button></form>`);}
@@ -330,6 +349,14 @@ document.addEventListener('click',async e=>{
  if(el.dataset.tab){goVendorTab(el.dataset.tab);return;}
 
  const action=el.dataset.action,pid=el.dataset.id;
+ if(action==='signup-back'){showSignupStep(el.closest('form'),'design');return;}
+ if(action==='copy-store'&&state?.settings.published&&!support&&!demo){
+  const url=location.origin+'/s/'+state.slug;
+  try{await navigator.clipboard.writeText(url);toast('Store link copied.');}
+  catch{showModal(`<h2>Share your storefront</h2><label class="field">Store link<input value="${esc(url)}" readonly></label><a class="btn" href="https://wa.me/?text=${encodeURIComponent(url)}" target="_blank" rel="noopener">Share on WhatsApp ↗</a>`);}
+  return;
+ }
+
  if(action==='shop-feature'){openShopFeature(pid);return;}
  if(action==='quiz-add'){const row=modal.querySelector('.quiz-rule[hidden]');if(row){row.hidden=false;row.querySelector('input')?.focus();}return;}
  if(action==='shop-feature-remove'){
@@ -430,12 +457,23 @@ document.addEventListener('click',async e=>{
  }catch(error){toast(error.message);}
 });
 document.addEventListener('input',e=>{
+ const input=e.target;
+ if(!input.matches('[data-form="signup"] input'))return;
+ if(input.name==='slug'){input.dataset.edited='true';return;}
+ if(input.name==='name'){
+  const slug=input.closest('form').elements.slug;
+  if(!slug.dataset.edited)slug.value=suggestStoreSlug(input.value);
+ }
+});
+document.addEventListener('input',e=>{
  if(e.target.matches('[data-vendor-filter]'))updateVendorFilter(e.target.closest('.vendor-panel'));
  if(e.target.id==='developer-store-search'){const query=e.target.value.toLowerCase();for(const row of e.target.closest('.panel').querySelectorAll('tbody tr'))row.hidden=!row.textContent.toLowerCase().includes(query);}
  if(e.target.closest('#mini-editor')){const d=formData(e.target.closest('form')),s=demoStore().settings;document.querySelector('#mini-preview').innerHTML=mini({...s,...d});}
 });
 document.addEventListener('change',async e=>{
  try{
+ if(e.target.matches('[data-form="signup"] input[name=template]')){const form=e.target.closest('form');updateSignupSelection(form,e.target.value);form.querySelector('.start-error').textContent='';return;}
+
  if(e.target.matches('[data-vendor-status]')){updateVendorFilter(e.target.closest('.vendor-panel'));return;}
  if(e.target.matches('[data-sort]')){navigateRetail('shop',{...retailRoute,sort:e.target.value,offset:0});}
  if(e.target.matches('[data-cart-quantity]')){const c=cart(),index=Number(e.target.dataset.cartQuantity),qty=Number(e.target.value),line=resolvedCart()[index];if(!Number.isInteger(qty)||qty<1||qty>99||qty>line.stock)throw Error('Choose a whole quantity within available stock.');const item=c.find(x=>x.productId===line.productId&&x.variantId===line.variantId);if(item)item.quantity=qty;saveCart(c);renderStore();}

@@ -63,7 +63,16 @@ market.items=[
  {name:'Kitchen cleaning essentials',category:'Household',price:235000,image:photo('household'),sku:'MKT-104',description:'Kitchen basics including dishwashing supplies and reusable cleaning cloths.'},
  {name:'Wholesale grocery box',category:'Pantry',price:960000,image:photo('bulk'),sku:'MKT-105',description:'A larger grocery bundle for a shared kitchen or a small business. Review the available packs before ordering.'}
 ];
-export const getTemplate=id=>templates.find(t=>t.id===id);
+export const getTemplate=id=>id==='blank'?blankTemplate:templates.find(t=>t.id===id);
 export function exampleStore(t){
  return {slug:t.id,template:t.id,settings:{...t.settings,name:t.label,bagLabel:'Bag',navAboutLabel:'Our story',footerText:'Thanks for shopping with us.',showHero:true,showAbout:true,currency:'JMD',customPages:[],shipping:'Sample policy: choose delivery or pickup at checkout. A live merchant sets the available service areas, fees and collection instructions.',returns:'Sample policy: contact the seller using the order reference if any goods arrive damaged or incorrect. A live merchant publishes its own returns terms.',privacy:'Sample policy: a merchant uses contact and delivery details to process and support your order.',terms:'This is an example storefront. It does not accept orders or payments.'},products:t.items.map((p,i)=>({...p,id:'sample-'+i,active:true,featured:i===0,stock:15,variants:(p.variants||[]).map(v=>({...v,stock:10})),description:p.description||'Sample product for this storefront template.'}))};
 }
+
+// A neutral starting point, intentionally without stock imagery or sample products.
+export const blankTemplate={
+ id:'blank',label:'Blank canvas',description:'A clean shop you can build around your own brand, photos and sections.',look:'minimal',art:'',items:[],
+ settings:{accent:'#165c50',background:'#fbfaf6',ink:'#17322d',font:'sans',layout:'minimal',headerStyle:'split',grid:'standard',
+  announcement:'',tagline:'WELCOME TO OUR SHOP',heroTitle:'Welcome to our shop.',heroText:'Introduce your business and tell shoppers what they can find here.',
+  heroButton:'Shop our products',heroImage:'',heroAlt:'',catalogTitle:'Shop our products',navShopLabel:'Shop',navAboutLabel:'Our story',
+  aboutTitle:'Our story',about:'Tell shoppers what makes your business yours.',categories:[],showHero:true,showAbout:true,sections:classicSections.map(s=>({...s}))}
+};

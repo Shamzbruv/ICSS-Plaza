@@ -165,6 +165,18 @@ test('brand metadata, manifest icons and shared artwork are served with browser-
  const head=await fetch(base+'/assets/brand/logo-horizontal.png',{method:'HEAD'});assert.equal(head.status,200);assert.equal(head.headers.get('content-type'),'image/png');assert.equal((await head.arrayBuffer()).byteLength,0);
 });
 
+test('a blank canvas creates a private store without artwork or sample products and accepts design changes',async()=>{
+ const access=await signup('blank-canvas-shop','blank'),t=access.tenant;
+ assert.equal(t.settings.template,'blank');assert.equal(t.settings.layout,'minimal');assert.equal(t.settings.heroImage,'');
+ assert.equal(t.settings.published,false);assert.deepEqual(t.settings.categories,[]);
+ const admin='/api/admin/'+t.id;
+ assert.deepEqual((await req(admin,'GET',null,access)).data.products,[]);
+ assert.equal((await req(admin+'/sample-products','POST',{},access)).status,404);
+ const saved=await req(admin+'/design','PUT',{mode:'save',design:{heroTitle:'Our own storefront',accent:'#225c60'}},access);
+ assert.equal(saved.status,200);assert.equal(saved.data.settings.designDraft.heroTitle,'Our own storefront');
+ assert.equal((await req('/api/stores/'+t.slug)).status,404);
+});
+
 test('template signup, immutable starter selection and draft publication protect live storefront design',async()=>{
  const signupData={email:'missing-template@example.com',password:'test-password-only',name:'No template',slug:'missing-template',acceptTerms:true};
  assert.equal((await req('/api/signup','POST',signupData)).status,400);
@@ -265,7 +277,7 @@ test('public pages are searchable in the initial HTML with unique metadata and s
   assert.equal(response.headers.get('x-robots-tag'),null,path);
   const html=await response.text();
   assert.ok(html.includes('<link rel="canonical" href="'+origin+path+'">'),path);
-  assert.ok(html.includes('<h1>'+heading),path);
+  assert.ok(html.replace(/<h1[^>]*>/g,'<h1>').includes('<h1>'+heading),path);
   assert.match(html,/name="description" content="[^"]+"/);
   assert.match(html,/property="og:locale" content="en_JM"/);
   assert.match(html,/href="\/consultation"/);

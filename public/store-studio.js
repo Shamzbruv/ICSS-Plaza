@@ -1,4 +1,4 @@
-import {templates,getTemplate,sectionTypes,exampleStore} from './store-templates.js?v=retail-1';
+import {templates,getTemplate,sectionTypes,exampleStore} from './store-templates.js?v=plaza-launch-1';
 import {designGroups,designKeys} from './store-design-fields.js?v=studio-1';
 import {esc,getSections,sectionPage} from './storefront.js?v=retail-1';
 
@@ -12,13 +12,10 @@ const copy=x=>structuredClone(x);
 const newID=()=>crypto.randomUUID().replaceAll('-','').slice(0,18);
 const btn=(label,cmd,value='',css='outline sm')=>`<button type="button" class="btn ${css}" data-studio="${cmd}" data-value="${attr(value)}">${esc(label)}</button>`;
 
-export function templateChooser(){
- return `<section class="signup-templates"><div class="eyebrow">01 · Choose your starting point</div><h2>Find the right look for your shop.</h2><p>Choose a starter template when you sign up. Your template choice is permanent; you can still change the layout, colours, sections, content and products afterwards.</p><fieldset><legend class="studio-sr">Choose a storefront template</legend><div class="template-grid">${templates.map(t=>`<article class="template-card"><label><input type="radio" name="template" value="${t.id}" required><img src="${t.art}" width="960" height="600" alt=""><span><strong>${esc(t.label)}</strong><small>${esc(t.description)}</small></span></label><a href="/templates/${t.id}" target="_blank" rel="noopener">Preview full storefront ↗</a></article>`).join('')}</div></fieldset></section>`;
-}
 export function templatePage(id){
  const t=getTemplate(id);
  if(!t)return null;
- return {store:exampleStore(t),toolbar:`<div class="example-toolbar"><a href="/signup">← All templates</a><strong>${esc(t.label)} · Template preview</strong><a class="btn sm" href="/signup?template=${t.id}">Start with this template →</a></div>`};
+ return {store:exampleStore(t),toolbar:`<div class="example-toolbar"><a href="/signup">← All templates</a><strong>${esc(t.label)} · Template preview</strong><a class="btn sm" href="/signup?template=${t.id}">Use this design →</a></div>`};
 }
 export function studioMediaOptions(images,kind,selected,label,name){
  const options=kind==='video'?[]:assetNames.map(k=>['/assets/'+k+'.svg',k.startsWith('template-')?'Artwork · '+getTemplate(k.slice(9))?.label:'Sample '+k]);
@@ -86,7 +83,7 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
   const s=locate(),g=designGroups[s?.type||selected],products=current().products;
   const sectionTitle=x=>x.title||sectionTypes[x.type];
   const row=(id,label,icon)=>`<button type="button" class="studio-layer${selected===id?' selected':''}" data-studio="pick" data-value="${attr(id)}" aria-pressed="${selected===id}"><span aria-hidden="true">${icon}</span>${esc(label)}</button>`;
-  const list=selected==='all-products'? `<div class="studio-products"><p class="small">Product changes save separately from design drafts. On a live store, changes to visible products take effect when you save them.</p>${btn('+ Add product','edit-product','','sm')}${t&&!products.length?`<p>Try this template’s sample products. They stay hidden until you make them visible.</p>${btn('Add sample products','sample-products')}`:''}${products.map(p=>`<button type="button" class="studio-layer" data-studio="edit-product" data-value="${attr(p.id)}"><span aria-hidden="true">▧</span><span>${esc(p.name)}<small>${p.active?'Visible':'Hidden'}</small></span></button>`).join('')}</div>`:'';
+  const list=selected==='all-products'? `<div class="studio-products"><p class="small">Product changes save separately from design drafts. On a live store, changes to visible products take effect when you save them.</p>${btn('+ Add product','edit-product','','sm')}${t?.items.length&&!products.length?`<p>Try this template’s sample products. They stay hidden until you make them visible.</p>${btn('Add sample products','sample-products')}`:''}${products.map(p=>`<button type="button" class="studio-layer" data-studio="edit-product" data-value="${attr(p.id)}"><span aria-hidden="true">▧</span><span>${esc(p.name)}<small>${p.active?'Visible':'Hidden'}</small></span></button>`).join('')}</div>`:'';
   const pages=value.customPages||[];
   let controls='';
   if(g)controls=g.fields.map(f=>f[2]==='pages'?pairs(pages,'pages','Page','Page content',10):field(f,value[f[0]],current().images)).join('');
@@ -96,7 +93,12 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
   const index=s?value.sections.indexOf(s):-1;
   const manage=s?`<div class="studio-section-actions"><button type="button" class="btn outline sm" data-studio="move" data-value="-1" ${index<1?'disabled':''}>↑ Up</button><button type="button" class="btn outline sm" data-studio="move" data-value="1" ${index===value.sections.length-1?'disabled':''}>↓ Down</button>${btn(s.hidden?'Show':'Hide','hide')}${coreTypes.includes(s.type)?'':btn('Remove','remove')}</div>`:'';
   const oldScroll=panel.scrollTop;
-  panel.innerHTML=`<div class="studio-inspector-inner"><div class="studio-label">Store design</div><p class="studio-template-name">${esc(t?.label||'Classic storefront')} <span>Template locked</span></p>
+  const guideOpen=panel.querySelector('[data-studio-guide]')?.open??!current().settings.published;
+  const hero=value.sections.find(x=>x.type==='hero');
+  const guide=`<details class="studio-coach" data-studio-guide ${guideOpen?'open':''}><summary>Make this storefront yours</summary>
+   <p>Click a section in the preview or pick a shortcut below. Your design edits stay private until you publish.</p>
+   <div class="studio-coach-steps">${hero?btn('Edit headline','pick',hero.id):''}${btn('Change colours','pick','theme')}${btn('Add a section','add-menu')}</div></details>`;
+  panel.innerHTML=`<div class="studio-inspector-inner"><div class="studio-label">Store design</div><p class="studio-template-name">${esc(t?.label||'Classic storefront')} <span>Starting point</span></p>${guide}
    <div class="studio-global">${row('brand','Brand & navigation','◈')}${row('theme','Colours & layout','◉')}${row('all-products','Products','▧')}</div>
    <details class="studio-layers" open><summary>Page sections</summary>${value.sections.map(x=>row(x.id,sectionTitle(x)+' · '+(studioPages.find(p=>p[0]===sectionPage(x))?.[1]||'Home')+(x.hidden?' (hidden)':''),'▤')).join('')}${['hero','catalog','about'].filter(k=>!value.sections.some(x=>x.type===k)).map(k=>btn('+ Restore '+sectionTypes[k],'add-section',k)).join('')}${row('footer','Footer & policies','≡')}<label class="field studio-add-label">Add a section<select data-studio-add><option value="">Choose a section</option>${Object.entries(sectionTypes).filter(([k])=>!coreTypes.includes(k)).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join('')}</select></label></details>
    <section class="studio-fields"><h2 tabindex="-1">${esc(g?.label||sectionTitle(s||{})||'Products')}</h2>${manage}<div id="studio-inputs">${controls}${list}</div></section></div>`;
@@ -224,7 +226,8 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
   if(!button)return;
   const command=button.dataset.studio,v=button.dataset.value;
   try{
-   if(command==='pick')select(v);
+   if(command==='pick'){select(v,true);if(locate())send('jump',selected);}
+   if(command==='add-menu'){const choice=app.querySelector('[data-studio-add]');if(choice){choice.closest('details').open=true;choice.focus();if(choice.showPicker)choice.showPicker();}}
    if(command==='edit-product')editProduct(v);
    if(command==='sample-products'){button.disabled=true;await importProducts();drawInspector();send();}
    if(command==='add-section')addSection(v);

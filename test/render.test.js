@@ -17,7 +17,7 @@ async function boot(path,search='',routes={}){
  return {app,events,modal,storage,requests};
 }
 test('landing includes interactive demo, operator attribution, contact and accurate payment disclosures',async()=>{
- const {app}=await boot('/');assert.match(app.innerHTML,/Your business/);assert.match(app.innerHTML,/14 DAYS FREE/);assert.match(app.innerHTML,/No payment card needed to start/);assert.match(app.innerHTML,/US\$31\.39/);assert.match(app.innerHTML,/mini-editor/);assert.match(app.innerHTML,/iCreate Solutions &amp; Services|iCreate Solutions & Services/);assert.match(app.innerHTML,/876-585-7469/);assert.match(app.innerHTML,/manual reconciliation/);assert.ok(!app.innerHTML.includes('876-582-5685'));
+ const {app}=await boot('/');assert.match(app.innerHTML,/Your business/);assert.match(app.innerHTML,/14 DAYS FREE/);assert.match(app.innerHTML,/No card to start/);assert.match(app.innerHTML,/US\$31\.39/);assert.match(app.innerHTML,/mini-editor/);assert.match(app.innerHTML,/iCreate Solutions &amp; Services|iCreate Solutions & Services/);assert.match(app.innerHTML,/876-585-7469/);assert.match(app.innerHTML,/manual reconciliation/);assert.ok(!app.innerHTML.includes('876-582-5685'));
 });
 test('demo dashboard tabs render designer, policies, media, payments and settings',async()=>{
  const {app,events}=await boot('/demo');assert.match(app.innerHTML,/Demo playground/);assert.match(app.innerHTML,/Your store, step by step/);
@@ -71,10 +71,13 @@ test('the Plaza owner can open the PayPal settings and sees an empty masked secr
  assert.match(modal.innerHTML,/Current ICSS Plaza password/);
  assert.doesNotMatch(modal.innerHTML,/name="secret"[^>]*value=/);
 });
-test('signup advertises six starter templates with a full wholesale preview',async()=>{
+test('signup offers six starters and a blank canvas, with explicit guidance and a full wholesale preview',async()=>{
  const {app}=await boot('/signup');
- assert.equal((app.innerHTML.match(/name="template"/g)||[]).length,6);
- assert.match(app.innerHTML,/template choice is permanent/);
+ assert.equal((app.innerHTML.match(/name="template"/g)||[]).length,7);
+ assert.match(app.innerHTML,/value="blank"/);
+ assert.match(app.innerHTML,/What can I change later/);
+ assert.match(app.innerHTML,/Continue to store details/);
+ assert.match(app.innerHTML,/data-signup-pane="details" hidden/);
  const example=await boot('/templates/wholesale');assert.match(example.app.innerHTML,/Your weekly shop, sorted\./);assert.match(example.app.innerHTML,/Jamaican pantry staples/);assert.match(example.app.innerHTML,/Shop by department/);
 });
 
