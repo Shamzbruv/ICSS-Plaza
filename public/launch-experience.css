@@ -154,7 +154,7 @@
 .start-controls>div:first-child strong,.start-controls>div:first-child span{display:block}
 .start-controls>div:first-child span{color:var(--launch-muted);font-size:.78rem}
 .start-cta-row{display:flex;flex-wrap:wrap;gap:7px}
-.start-error{max-width:1320px;padding-inline:clamp(16px,5vw,72px);padding-bottom:8px;margin:0 auto;color:#a12220}
+.start-error{margin:2px 0 0;color:#a12220;font-size:.78rem}.start-error:empty{display:none}
 .launchpad-first{margin-bottom:20px}.vendor-dashboard-grid.launchpad-quick-only{grid-template-columns:1fr}
 .launchpad{background:#fff;border:1px solid var(--launch-line);border-radius:15px}
 .launchpad-lead,.launchpad-live{display:flex;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;align-items:center}
@@ -207,3 +207,5 @@
  .start-choice img,.start-choice-icon{width:48px;height:37px}
 }
 @media(prefers-reduced-motion:reduce){.start-choice{transition:none}}
+
+.plaza-arrow-icon{display:inline-block;vertical-align:middle;flex:none}.stage-shop-button .plaza-arrow-icon{width:10px;height:10px}.stage-chip .plaza-arrow-icon{transform:rotate(-90deg)}
