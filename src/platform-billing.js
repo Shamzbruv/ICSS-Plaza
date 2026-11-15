@@ -1,5 +1,6 @@
 import {fygaroJWT,verifyFygaro} from './payments.js';
 import {fail,id,integer,safeURL,text} from './model.js';
+import {launchPlan,matchesMonthlyPlan,paypalLaunch} from './paypal-launch.js';
 
 const paypalId=x=>typeof x==='string'&&/^[A-Z0-9-]{4,60}$/.test(x);
 const paidStates=['active','renewal_due','past_due','cancelled','suspended','expired','refunded'];
@@ -14,15 +15,25 @@ const monthAfter = start => {
 export function createPlatformBilling({db,env=process.env,fetcher=fetch,origin,audit,notify}) {
  const {one,all,run,tx}=db;
  const fy={buttonURL:env.PLAZA_FYGARO_LINK,keyId:env.PLAZA_FYGARO_KEY_ID,secret:env.PLAZA_FYGARO_SECRET};
- const pp={client:env.PLAZA_PAYPAL_CLIENT_ID,secret:env.PLAZA_PAYPAL_SECRET,webhook:env.PLAZA_PAYPAL_WEBHOOK_ID};
+ const pp={client:env.PLAZA_PAYPAL_CLIENT_ID?.trim(),secret:env.PLAZA_PAYPAL_SECRET?.trim(),webhook:env.PLAZA_PAYPAL_WEBHOOK_ID?.trim()};
  const live=env.PLAZA_PAYPAL_MODE==='live';
- const ready={fygaro:!!(fy.buttonURL&&fy.keyId&&fy.secret&&origin?.startsWith('https://')),paypal:!!(pp.client&&pp.secret&&pp.webhook&&origin?.startsWith('https://'))};
+ const paypalCredentials=!!(pp.client&&pp.secret&&origin?.startsWith('https://'));
+ const fygaroReady=!!(fy.buttonURL&&fy.keyId&&fy.secret&&origin?.startsWith('https://'));
  const api=live?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com';
- async function request(path,options={}) {
-  const r=await fetcher(api+path,{...options,signal:AbortSignal.timeout(15000)});
+ async function request(path,{missing=false,...options}={}) {
+  let r;
+  try{r=await fetcher(api+path,{...options,redirect:'error',signal:AbortSignal.timeout(15000)});}
+  catch{fail('Could not connect to PayPal. Try again shortly.',502);}
+  if(missing&&r.status===404)return null;
+  if(path==='/v1/oauth2/token'&&[400,401,403].includes(r.status))fail('PayPal rejected the app credentials. Check that the Client ID and secret are both from the same Live app.',502);
   if(!r.ok)fail('PayPal could not complete the request. Try again or contact Plaza support.',502);
   return r.status===204?{}:r.json();
  }
+ const launch=paypalLaunch({request,origin,configuredWebhook:pp.webhook});
+ const launchRow=()=>one('SELECT * FROM plaza_plans WHERE id=?',launchPlan.id);
+ const readiness=async (row=undefined)=>({fygaro:fygaroReady,paypal:paypalCredentials&&Boolean(pp.webhook||
+  live&&(row===undefined?await launchRow():row)?.paypal_plan)});
+ let settingUp=false;
  async function paypal() {
   const r=await request('/v1/oauth2/token',{method:'POST',headers:{Authorization:'Basic '+Buffer.from(pp.client+':'+pp.secret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials'});
   if(!r.access_token)fail('PayPal credentials could not be verified.',502);
@@ -53,7 +64,22 @@ export function createPlatformBilling({db,env=process.env,fetcher=fetch,origin,a
   await receipt({...r,paid_until:until},'payment confirmed');
  }
  return {
-  ready, paypalMode:live?'live':'sandbox',
+  readiness, paypalMode:live?'live':'sandbox',
+  async setupPayPal(actor){
+   if(!live||!paypalCredentials)fail('Add the Live PayPal credentials and set PLAZA_PAYPAL_MODE=live in Railway before completing setup.',503);
+   if(settingUp)fail('PayPal setup is already running. Try again shortly.',409);
+   settingUp=true;
+   try {
+    const local=await launchRow(),linked=await launch.setup(await paypal(),local);
+    if(!local)await tx(async()=>{
+     if(await launchRow())return;
+     await run('INSERT INTO plaza_plans VALUES(?,?,?,?,?,?,?)',launchPlan.id,launchPlan.name,launchPlan.amount,launchPlan.currency,linked,1,Date.now());
+     await audit(null,actor,'rental.paypal.launch.'+launchPlan.id);
+    },'billing-plans');
+    const result=await launchRow();
+    return {id:result.id,enabled:!!result.enabled};
+   }finally{settingUp=false;}
+  },
   async available(t) {
    if(!t||['suspended','cancelled'].includes(t.status))return false;
    if(/^plaza-test-/.test(t.slug))return false;
@@ -65,7 +91,11 @@ export function createPlatformBilling({db,env=process.env,fetcher=fetch,origin,a
    const plans=await all(tid?'SELECT * FROM plaza_plans WHERE enabled=1 ORDER BY created DESC':'SELECT * FROM plaza_plans ORDER BY created DESC LIMIT 100');
    const rentals=(await all(select+(tid?' WHERE r.tenant_id=?':'')+' ORDER BY r.created DESC,r.id DESC LIMIT 100',...(tid?[tid]:[]))).map(show);
    const events=tid?[]:await all('SELECT e.kind,e.created,r.provider,r.tenant_id FROM plaza_billing_events e JOIN plaza_rentals r ON r.id=e.rental_id ORDER BY e.created DESC LIMIT 60');
-   return {plans,rentals,events,providers:ready,paypalMode:live?'live':'sandbox'};
+   const managed=plans.find(p=>p.id===launchPlan.id)??(tid?await launchRow():null);
+   const providers=await readiness(managed);
+   const offered=plans.map(p=>p.id===launchPlan.id?{...p,paypalOnly:true}:p).filter(p=>!tid||!p.paypalOnly||providers.paypal&&live);
+   return {plans:offered,rentals,events,providers,paypalMode:live?'live':'sandbox',
+    ...(!tid?{paypalSetup:{credentialsReady:paypalCredentials&&live,enabled:!!managed?.enabled,linked:!!managed}}:{})};
   },
   async plan(b,actor) {
    const name=text(b.name,80,2),amount=integer(b.amount,100000000,1),currency=b.currency;
@@ -86,19 +116,19 @@ export function createPlatformBilling({db,env=process.env,fetcher=fetch,origin,a
   },
   async checkout(t,b) {
    const provider=b.provider;
-   if(!['fygaro','paypal'].includes(provider)||!ready[provider]||provider==='paypal'&&!live)fail('This payment method is not configured.',503);
+   if(!['fygaro','paypal'].includes(provider)||provider==='fygaro'&&!fygaroReady||
+      provider==='paypal'&&(!live||!(await readiness()).paypal))fail('This payment method is not configured.',503);
    if(['suspended','cancelled'].includes(t.status)||/^plaza-test-/.test(t.slug))fail('Billing is unavailable for this store.',403);
    const plan=await one('SELECT * FROM plaza_plans WHERE id=? AND enabled=1',text(b.plan,24,24));
    if(!plan)fail('Plan unavailable.',404);
+   if(plan.id===launchPlan.id&&provider!=='paypal')fail('This USD monthly plan is available through PayPal only.');
    if(provider==='paypal'&&!plan.paypal_plan)fail('This plan does not offer PayPal.');
    let headers;
    if(provider==='paypal'){
     headers=await paypal();
+    await launch.webhook(headers);
     const actual=await request('/v1/billing/plans/'+plan.paypal_plan,{headers});
-    const cycles=actual.billing_cycles||[],cycle=cycles[0];
-    if(actual.status!=='ACTIVE'||cycles.length!==1||cycle.tenure_type!=='REGULAR'||cycle.total_cycles!==0||cycle.frequency?.interval_unit!=='MONTH'||cycle.frequency?.interval_count!==1||
-       minor(cycle.pricing_scheme?.fixed_price?.value,cycle.pricing_scheme?.fixed_price?.currency_code,plan.currency)!==plan.amount||
-       Number(actual.payment_preferences?.setup_fee?.value||0)!==0||actual.taxes&&Number(actual.taxes.percentage||0)!==0)fail('PayPal plan price or schedule does not match Plaza.',409);
+    if(!matchesMonthlyPlan(actual,plan))fail('PayPal plan price or schedule does not match Plaza.',409);
    }
    const r=await tx(async()=>{
     const current=await chosen(t.id);
@@ -128,7 +158,7 @@ export function createPlatformBilling({db,env=process.env,fetcher=fetch,origin,a
    const r=await one("SELECT * FROM plaza_rentals WHERE id=? AND tenant_id=? AND provider='paypal'",rid,t.id);
    if(!r?.provider_id)fail('PayPal subscription not found.',404);
    if(r.status==='cancelled'||r.status==='expired')return;
-   if(!ready.paypal||!live)fail('Live PayPal subscription management is not configured.',503);
+   if(!paypalCredentials||!live)fail('Live PayPal subscription management is not configured.',503);
    const headers=await paypal();
    const path='/v1/billing/subscriptions/'+r.provider_id;
    const remote=await request(path,{headers});
@@ -140,7 +170,7 @@ export function createPlatformBilling({db,env=process.env,fetcher=fetch,origin,a
    });
   },
   async fygaroHook(b,raw,headers) {
-   if(!ready.fygaro||!verifyFygaro(raw,headers,fy))fail('Invalid Fygaro signature.',401);
+   if(!fygaroReady||!verifyFygaro(raw,headers,fy))fail('Invalid Fygaro signature.',401);
    const match=String(b.customReference||'').match(/^plaza-([a-f0-9]{24})$/);
    if(!match)fail('Unknown rental reference.',404);
    const r=await one("SELECT * FROM plaza_rentals WHERE id=? AND provider='fygaro'",match[1]);
@@ -153,12 +183,13 @@ export function createPlatformBilling({db,env=process.env,fetcher=fetch,origin,a
    });
   },
   async paypalHook(b,h) {
-   if(!ready.paypal)fail('PayPal webhooks are not configured.',503);
-   const headers=await paypal();
+   if(!(await readiness()).paypal)fail('PayPal webhooks are not configured.',503);
    const signature={auth_algo:h['paypal-auth-algo'],cert_url:h['paypal-cert-url'],transmission_id:h['paypal-transmission-id'],
     transmission_sig:h['paypal-transmission-sig'],transmission_time:h['paypal-transmission-time']};
    if(Object.values(signature).some(v=>typeof v!=='string'||!v))fail('Missing PayPal signature.',401);
-   const v=await request('/v1/notifications/verify-webhook-signature',{method:'POST',headers,body:JSON.stringify({...signature,webhook_id:pp.webhook,webhook_event:b})});
+   const headers=await paypal();
+   const webhook=await launch.webhook(headers);
+   const v=await request('/v1/notifications/verify-webhook-signature',{method:'POST',headers,body:JSON.stringify({...signature,webhook_id:webhook,webhook_event:b})});
    if(v.verification_status!=='SUCCESS')fail('Invalid PayPal signature.',401);
    const type=b.event_type,resource=b.resource||{},sale=type==='PAYMENT.SALE.COMPLETED';
    const statuses={'BILLING.SUBSCRIPTION.CANCELLED':'cancelled','BILLING.SUBSCRIPTION.SUSPENDED':'suspended','BILLING.SUBSCRIPTION.EXPIRED':'expired','BILLING.SUBSCRIPTION.PAYMENT.FAILED':'past_due'};

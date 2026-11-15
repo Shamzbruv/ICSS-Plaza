@@ -212,7 +212,8 @@ export async function createApp(options={}) {
  if(path==='/api/consultations'&&method==='POST')return respond(res,await ops.consult(req,b),201);
  if(path==='/api/billing/hooks/fygaro'&&method==='POST'){await billing.fygaroHook(b,req.raw,req.headers);return respond(res,{received:true});}
  if(path==='/api/billing/hooks/paypal'&&method==='POST'){await billing.paypalHook(b,req.headers);return respond(res,{received:true});}
- if(path==='/api/operator/overview'&&method==='GET'){requireOperator(req);return respond(res,{...(await ops.overview()),...(await mailer.stats()),database:database.kind,billing:billing.ready,paypalMode:billing.paypalMode});}
+ if(path==='/api/operator/overview'&&method==='GET'){requireOperator(req);return respond(res,{...(await ops.overview()),...(await mailer.stats()),database:database.kind,billing:await billing.readiness(),paypalMode:billing.paypalMode});}
+ if(path==='/api/operator/billing/paypal-setup'&&method==='POST'){requireOperator(req);limit(req,'operator-paypal-setup',6);return respond(res,await billing.setupPayPal(req.user.id));}
  const tenantDetail=path.match(/^\/api\/operator\/stores\/([a-f0-9]{24})$/);
  if(tenantDetail&&method==='GET'){requireOperator(req);const t=await getTenantId(tenantDetail[1]);if(!t)fail('Store not found.',404);const result={name:t.settings.name,slug:t.slug,status:t.status,published:t.settings.published,accessible:await available(t),restriction:await storefrontRestriction(t.id)||null};for(const table of ['orders','products','images','vendor_reports'])result[table]=(await one('SELECT COUNT(*) AS n FROM '+table+' WHERE tenant_id=?',t.id)).n;return respond(res,result);}
  const rentalCancel=path.match(/^\/api\/operator\/billing\/rentals\/([a-f0-9]{24})\/cancel$/);

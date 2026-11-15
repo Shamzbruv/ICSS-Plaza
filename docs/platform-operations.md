@@ -28,13 +28,27 @@ vendor's shop. The plans are monthly. No prices or active plans are seeded.
   and `PLAZA_FYGARO_SECRET` for the platform's dynamic button. Configure
   `/api/billing/hooks/fygaro` as its HTTPS webhook on the live Plaza host.
   Each verified payment buys one month; the next month is paid separately.
-- **PayPal, optional:** Set `PLAZA_PAYPAL_CLIENT_ID`, `PLAZA_PAYPAL_SECRET`,
-  `PLAZA_PAYPAL_WEBHOOK_ID`, and `PLAZA_PAYPAL_MODE=live`. Register
-  `/api/billing/hooks/paypal` for subscription activation, suspension,
-  cancellation, expiry and payment failure, plus completed, refunded and
-  reversed sales. Attach a matching active USD PayPal monthly plan ID to
-  the Plaza plan. Plaza validates the amount, interval, tax and setup fee.
-  A browser return or subscription approval never activates paid access.
+- **PayPal, automatic renewal:** In the ICSS Plaza Railway service’s **Variables**,
+  set `PLAZA_PAYPAL_MODE=live`, `PLAZA_PAYPAL_CLIENT_ID`, and
+  `PLAZA_PAYPAL_SECRET` from the same **Live** PayPal app. Use a sealed
+  secret for `PLAZA_PAYPAL_SECRET`. Leave `PLAZA_PAYPAL_WEBHOOK_ID` blank
+  for automatic registration. After the service redeploys, go to
+  **Developer → Subscriptions → Complete PayPal setup**. Plaza verifies
+  the credentials, registers or verifies the webhook, and publishes the
+  **ICSS Plaza Monthly** PayPal plan at **US$31.39/month** (J$5,000 launch
+  equivalent). The USD amount is fixed; bank and PayPal conversion can vary.
+  Setup does not create a subscription or charge anyone. Running it again
+  verifies the connection without duplicating the plan or reopening a retired plan.
+- **Existing PayPal webhooks and plans:** If you set `PLAZA_PAYPAL_WEBHOOK_ID`,
+  the launch setup checks that this ID belongs to the same app and points to
+  `https://icssplaza.com/api/billing/hooks/paypal`. The webhook needs
+  `BILLING.SUBSCRIPTION.ACTIVATED`, `BILLING.SUBSCRIPTION.SUSPENDED`,
+  `BILLING.SUBSCRIPTION.CANCELLED`, `BILLING.SUBSCRIPTION.EXPIRED`,
+  `BILLING.SUBSCRIPTION.PAYMENT.FAILED`, `PAYMENT.SALE.COMPLETED`,
+  `PAYMENT.SALE.REFUNDED`, and `PAYMENT.SALE.REVERSED`.
+  A manually linked PayPal plan must match the Plaza USD price and recur
+  monthly without a setup fee or separate PayPal tax. Only a verified payment
+  counts toward paid access; subscription approval by itself does not.
 - **Refunds:** Process approved refunds through the original provider and
   reconcile them in the provider dashboard. PayPal refund/reversal events
   appear in the Plaza billing ledger. Cancelling renewal does not refund

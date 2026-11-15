@@ -95,3 +95,93 @@ test('developer, consultations, isolated QA and rental gateways enforce their bo
  assert.equal(events.filter(e=>e.kind==='payment').length,2);
  assert.equal(events.filter(e=>e.kind==='refund_or_reversal').length,1);
 });
+
+test('live PayPal launch registers the webhook, verifies the monthly price and links the plan once',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'plaza-paypal-launch-'));
+ const env={...billingEnv,PLAZA_PAYPAL_WEBHOOK_ID:undefined};
+ const paths={oauth:'/v1/oauth2/token',hooks:'/v1/notifications/webhooks',products:'/v1/catalogs/products',plans:'/v1/billing/plans'};
+ const tx={hooks:0,products:0,plans:0,subscribers:0};
+ const planReference='P-LAUNCH3139';
+ let hook,product,plan,remote;
+ let accepted=true;
+ const billingFetcher=async(url,opts)=>{
+  const {pathname,hostname,searchParams}=new URL(url);
+  assert.equal(hostname,'api-m.paypal.com');
+  const method=opts.method||'GET',body=opts.body?.startsWith('{')?JSON.parse(opts.body):null;
+  if(pathname===paths.oauth){
+   assert.equal(opts.headers.Authorization,'Basic '+Buffer.from('test-client:test-secret').toString('base64'));
+   return accepted?Response.json({access_token:'fixture'}):new Response(null,{status:401});
+  }
+  assert.equal(opts.headers.Authorization,'Bearer fixture');
+  if(pathname===paths.hooks&&method==='GET')return Response.json({webhooks:hook?[hook]:[]});
+  if(pathname===paths.hooks&&method==='POST'){
+   assert.equal(body.url,origin+'/api/billing/hooks/paypal');
+   assert.ok(body.event_types.some(event=>event.name==='PAYMENT.SALE.COMPLETED'));
+   assert.equal(new Set(body.event_types.map(x=>x.name)).size,8);
+   tx.hooks++;hook={id:'HOOK-3139',...body};return Response.json(hook,{status:201});
+  }
+  if(pathname.startsWith(paths.products+'/')){
+   if(!product)return new Response(null,{status:404});
+   assert.equal(pathname,paths.products+'/'+product.id);return Response.json(product);
+  }
+  if(pathname===paths.products&&method==='POST'){tx.products++;product=body;return Response.json(product,{status:201});}
+  if(pathname===paths.plans&&method==='GET'){
+   assert.equal(searchParams.get('product_id'),product.id);
+   return Response.json({plans:plan?[{id:plan.id,name:plan.name}]:[]});
+  }
+  if(pathname===paths.plans&&method==='POST'){
+   assert.equal(body.product_id,product.id);
+   assert.deepEqual(body.billing_cycles,[{frequency:{interval_unit:'MONTH',interval_count:1},tenure_type:'REGULAR',sequence:1,total_cycles:0,pricing_scheme:{fixed_price:{value:'31.39',currency_code:'USD'}}}]);
+   tx.plans++;plan={id:planReference,...body};return Response.json(plan,{status:201});
+  }
+  if(pathname===paths.plans+'/'+planReference)return Response.json(plan);
+  if(pathname==='/v1/billing/subscriptions'){
+   assert.equal(body.plan_id,planReference);
+   tx.subscribers++;remote={...body,id:'I-LAUNCH3139',billing_info:{next_billing_time:new Date(Date.now()+30*86400000).toISOString()}};
+   return Response.json({...remote,links:[{rel:'approve',href:'https://www.paypal.com/approve'}]});
+  }
+  if(pathname==='/v1/billing/subscriptions/'+remote?.id)return Response.json(remote);
+  if(pathname==='/v1/notifications/verify-webhook-signature'){
+   assert.equal(body.webhook_id,hook.id);
+   return Response.json({verification_status:'SUCCESS'});
+  }
+  throw Error('Unexpected PayPal operation: '+pathname);
+ };
+ const operatorEmail='paypal-launch-operator@example.com',password='secure-launch-test-password';
+ const {server}=await createApp({dataDir:dir,databaseURL:process.env.PLAZA_TEST_DATABASE_URL||'',baseURL:origin,encryptionKey:'12'.repeat(32),operatorEmail,operatorPassword:password,production:false,billingEnv:env,billingFetcher});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ t.after(async()=>{await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});});
+ const port=server.address().port;
+ const req=(path,{body,auth,headers,method}={})=>fetch('http://127.0.0.1:'+port+path,{method:method||(body?'POST':'GET'),headers:{Origin:origin,'Content-Type':'application/json',...(auth?{Cookie:auth.cookie,'X-CSRF-Token':auth.csrf}:{}),...headers},body:body?JSON.stringify(body):undefined});
+ async function signedIn(response){
+  assert.ok(response.ok);
+  const cookie=response.headers.get('set-cookie').split(';')[0];
+  return {cookie,...await (await req('/api/session',{auth:{cookie}})).json()};
+ }
+ const merchant=await signedIn(await req('/api/signup',{body:{email:'paypal-launch-shop@example.com',password,name:'PayPal launch test shop',slug:'paypal-launch-shop',acceptTerms:true,template:'beauty'}}));
+ const op=await signedIn(await req('/api/login',{body:{email:operatorEmail,password}}));
+ const setup='/api/operator/billing/paypal-setup';
+ assert.equal((await req(setup,{body:{},auth:merchant})).status,403);
+ const before=await (await req('/api/operator/billing',{auth:op})).json();
+ assert.equal(before.providers.paypal,false);assert.equal(before.paypalSetup.linked,false);
+ accepted=false;
+ const denied=await req(setup,{body:{},auth:op});
+ assert.equal(denied.status,502);assert.match((await denied.json()).error,/rejected the app credentials/);
+ accepted=true;
+ const first=await req(setup,{body:{},auth:op});assert.equal(first.status,200);
+ const {id,enabled}=await first.json();assert.ok(enabled);
+ const repeat=await req(setup,{body:{},auth:op});assert.deepEqual(await repeat.json(),{id,enabled:true});
+ assert.deepEqual(tx,{hooks:1,products:1,plans:1,subscribers:0});
+ const vendorPath='/api/admin/'+merchant.tenants[0].id+'/billing';
+ const data=await (await req(vendorPath,{auth:merchant})).json();
+ const offer=data.plans.find(x=>x.id===id);
+ assert.deepEqual([offer.amount,offer.currency,offer.paypalOnly],[3139,'USD',true]);
+ assert.equal((await req(vendorPath+'/checkout',{body:{plan:id,provider:'fygaro'},auth:merchant})).status,400);
+ assert.equal((await req(vendorPath+'/checkout',{body:{plan:id,provider:'paypal'},auth:merchant})).status,200);
+ const body={id:'EV-LAUNCH',event_type:'PAYMENT.SALE.COMPLETED',resource:{id:'SALE-LAUNCH',billing_agreement_id:remote.id,amount:{total:'31.39',currency:'USD'}}};
+ const headers=Object.fromEntries(['auth-algo','cert-url','transmission-id','transmission-sig','transmission-time'].map(k=>['PayPal-'+k,'fixture']));
+ assert.equal((await req('/api/billing/hooks/paypal',{body,headers})).status,200);
+ const after=await (await req(vendorPath,{auth:merchant})).json();
+ assert.equal(after.rentals[0].status,'active');
+ assert.equal(after.rentals[0].amount,3139);
+});
