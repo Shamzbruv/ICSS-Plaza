@@ -115,12 +115,18 @@ export function createPlatformBilling({db,key,env=process.env,fetcher=fetch,orig
    if(settingUp)fail('PayPal setup is already running. Try again shortly.',409);
    settingUp=true;
    try {
-    const local=await launchRow(),linked=await pp.launch.setup(await pp.authorize(),local);
-    if(!local)await tx(async()=>{
+    const linked=await pp.launch.setup(await pp.authorize());
+    await tx(async()=>{
      if((await currentAccount()).client!==pp.client)fail('PayPal settings changed. Run setup again.',409);
-     if(await launchRow())return;
-     await run('INSERT INTO plaza_plans VALUES(?,?,?,?,?,?,?)',launchPlan.id,launchPlan.name,launchPlan.amount,launchPlan.currency,linked,1,Date.now());
-     await audit(null,actor,'rental.paypal.launch.'+launchPlan.id);
+     const current=await launchRow();
+     if(!current){
+      await run('INSERT INTO plaza_plans VALUES(?,?,?,?,?,?,?)',launchPlan.id,launchPlan.name,launchPlan.amount,launchPlan.currency,linked,1,Date.now());
+      await audit(null,actor,'rental.paypal.launch.'+launchPlan.id);
+     }else if(current.paypal_plan!==linked){
+      // Rental rows keep their original PayPal plan snapshot for payments and cancellation.
+      await run('UPDATE plaza_plans SET paypal_plan=? WHERE id=?',linked,launchPlan.id);
+      await audit(null,actor,'rental.paypal.relinked.'+launchPlan.id);
+     }
     },'billing-plans');
     const result=await launchRow();
     return {id:result.id,enabled:!!result.enabled};
@@ -130,7 +136,8 @@ export function createPlatformBilling({db,key,env=process.env,fetcher=fetch,orig
    if(!t||['suspended','cancelled'].includes(t.status))return false;
    if(/^plaza-test-/.test(t.slug))return false;
    const row=await chosen(t.id);
-   if(row&&(row.paid_until||paidStates.includes(row.status))) return row.paid_until>Date.now()&&!['suspended','refunded'].includes(row.status);
+   const unpaidCancellation=t.status==='trial'&&!row?.paid_until&&['cancelled','expired'].includes(row?.status);
+   if(row&&!unpaidCancellation&&(row.paid_until||paidStates.includes(row.status))) return row.paid_until>Date.now()&&!['suspended','refunded'].includes(row.status);
    return t.status==='active'||t.status==='trial'&&t.trial_end>Date.now();
   },
   async list(tid) {
@@ -141,8 +148,10 @@ export function createPlatformBilling({db,key,env=process.env,fetcher=fetch,orig
    const pp=await currentAccount(),live=pp.live;
    const providers=await readiness(managed,pp);
    const offered=plans.map(p=>p.id===launchPlan.id?{...p,paypalOnly:true}:p).filter(p=>!tid||!p.paypalOnly||providers.paypal&&live);
+   const linked=managed?.paypal_plan===launchPlan.paypalPlan;
    return {plans:offered,rentals,events,providers,paypalMode:live?'live':'sandbox',
-    ...(!tid?{paypalSetup:{credentialsReady:pp.credentials&&live,hasClientId:!!(live&&pp.client),portalSaved:!!pp.updated,enabled:!!managed?.enabled,linked:!!managed}}:{})};
+    ...(!tid?{paypalSetup:{credentialsReady:pp.credentials&&live,hasClientId:!!(live&&pp.client),portalSaved:!!pp.updated,
+     enabled:linked&&!!managed.enabled,linked,planId:launchPlan.paypalPlan}}:{})};
   },
   async plan(b,actor) {
    const name=text(b.name,80,2),amount=integer(b.amount,100000000,1),currency=b.currency;
@@ -194,8 +203,12 @@ export function createPlatformBilling({db,key,env=process.env,fetcher=fetch,orig
     let u;try{u=new URL(safeURL(fy.buttonURL,['fygaro.com']));}catch{fail('The platform Fygaro link is invalid.',503);}
     u.searchParams.set('jwt',fygaroJWT({id:'plaza-'+r.id,total:r.amount,currency:r.currency},fy));return {url:u.toString()};
    }
+   // Keep the Plaza trial card-free. If a vendor opts into this plan early,
+   // schedule its first paid cycle at the existing trial cutoff.
+   const trialStart=r.provider_plan===launchPlan.paypalPlan&&t.status==='trial'&&t.trial_end>Date.now()
+    ?{start_time:new Date(Math.ceil(t.trial_end/1000)*1000).toISOString()}:{};
    const data=await pp.request(r.provider_id?'/v1/billing/subscriptions/'+r.provider_id:'/v1/billing/subscriptions',r.provider_id?{headers}:{method:'POST',headers:{...headers,'PayPal-Request-Id':'plaza-'+r.id},
-    body:JSON.stringify({plan_id:r.provider_plan,custom_id:r.id,application_context:{brand_name:'ICSS Plaza',user_action:'SUBSCRIBE_NOW',shipping_preference:'NO_SHIPPING',return_url:origin+'/admin?tab=billing',cancel_url:origin+'/admin?tab=billing'}})});
+    body:JSON.stringify({plan_id:r.provider_plan,custom_id:r.id,...trialStart,application_context:{brand_name:'ICSS Plaza',user_action:'SUBSCRIBE_NOW',shipping_preference:'NO_SHIPPING',return_url:origin+'/admin?tab=billing',cancel_url:origin+'/admin?tab=billing'}})});
    if(!paypalId(data.id))fail('PayPal returned an invalid subscription reference.',502);
    await run('UPDATE plaza_rentals SET provider_id=?,updated=? WHERE id=?',data.id,Date.now(),r.id);
    const link=data.links?.find(x=>x.rel==='approve');

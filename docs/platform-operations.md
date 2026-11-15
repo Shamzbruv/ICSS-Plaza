@@ -35,10 +35,14 @@ vendor's shop. The plans are monthly. No prices or active plans are seeded.
   encrypted. The portal never shows the saved secret. To replace a
   secret for the same app later, leave the Client ID blank.
   Then select **Complete PayPal setup**. Plaza registers or verifies the
-  webhook and publishes **ICSS Plaza Monthly** at **US$31.39/month**
+  webhook and links the existing PayPal plan `P-59K86224KG120672MNL5AQNA`
+  as **ICSS Plaza Monthly** at **US$31.39/month**
   (J$5,000 launch equivalent). Setup does not create a subscription or charge
   anyone. Running it again verifies the connection without duplicating the
-  plan or reopening a retired plan. Existing Railway variables are used only
+  plan or reopening a retired plan. Plaza provides the 14-day card-free trial;
+  the PayPal plan must have no trial cycle of its own. If a vendor chooses
+  PayPal during the trial, the first paid cycle is scheduled for the end
+  of that vendor’s trial. Existing Railway variables are used only
   until the owner saves credentials in the portal.
 - **Existing PayPal webhooks and plans:** If you set `PLAZA_PAYPAL_WEBHOOK_ID`,
   the launch setup checks that this ID belongs to the same app and points to

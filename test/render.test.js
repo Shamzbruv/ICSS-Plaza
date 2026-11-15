@@ -17,7 +17,7 @@ async function boot(path,search='',routes={}){
  return {app,events,modal,storage,requests};
 }
 test('landing includes interactive demo, operator attribution, contact and accurate payment disclosures',async()=>{
- const {app}=await boot('/');assert.match(app.innerHTML,/Your business/);assert.match(app.innerHTML,/mini-editor/);assert.match(app.innerHTML,/iCreate Solutions &amp; Services|iCreate Solutions & Services/);assert.match(app.innerHTML,/876-585-7469/);assert.match(app.innerHTML,/manual reconciliation/);assert.ok(!app.innerHTML.includes('876-582-5685'));
+ const {app}=await boot('/');assert.match(app.innerHTML,/Your business/);assert.match(app.innerHTML,/14 DAYS FREE/);assert.match(app.innerHTML,/No payment card needed to start/);assert.match(app.innerHTML,/US\$31\.39/);assert.match(app.innerHTML,/mini-editor/);assert.match(app.innerHTML,/iCreate Solutions &amp; Services|iCreate Solutions & Services/);assert.match(app.innerHTML,/876-585-7469/);assert.match(app.innerHTML,/manual reconciliation/);assert.ok(!app.innerHTML.includes('876-582-5685'));
 });
 test('demo dashboard tabs render designer, policies, media, payments and settings',async()=>{
  const {app,events}=await boot('/demo');assert.match(app.innerHTML,/Demo playground/);assert.match(app.innerHTML,/Your store, step by step/);

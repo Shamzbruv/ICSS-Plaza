@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {createApp} from '../src/server.js';
 import {ownerEmail} from '../src/operator-access.js';
 import {paypalSettingsKey} from '../src/paypal-settings.js';
+import {launchPlan} from '../src/paypal-launch.js';
 import {decrypt} from '../src/model.js';
 
 const origin='https://plaza.example';
@@ -99,17 +100,19 @@ test('developer, consultations, isolated QA and rental gateways enforce their bo
  assert.equal(events.filter(e=>e.kind==='refund_or_reversal').length,1);
 });
 
-test('owner settings verify and encrypt Live PayPal credentials, then launch monthly billing once',async t=>{
+test('the supplied Live PayPal plan links once and preserves a card-free Plaza trial',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'plaza-paypal-launch-'));
  const env={...billingEnv,PLAZA_PAYPAL_SECRET:undefined,PLAZA_PAYPAL_WEBHOOK_ID:undefined};
  const clientId=env.PLAZA_PAYPAL_CLIENT_ID,firstSecret='portal-test-secret',newSecret='portal-rotated-secret',key='12'.repeat(32);
- const paths={oauth:'/v1/oauth2/token',hooks:'/v1/notifications/webhooks',products:'/v1/catalogs/products',plans:'/v1/billing/plans'};
- const tx={hooks:0,products:0,plans:0,subscribers:0};
- const planReference='P-LAUNCH3139';
- let hook,product,plan,remote;
+ const paths={oauth:'/v1/oauth2/token',hooks:'/v1/notifications/webhooks',plans:'/v1/billing/plans'};
+ const tx={hooks:0,subscribers:0};
+ const planReference='P-59K86224KG120672MNL5AQNA';
+ const cycle={frequency:{interval_unit:'MONTH',interval_count:1},tenure_type:'REGULAR',sequence:1,total_cycles:0,pricing_scheme:{fixed_price:{value:'31.39',currency_code:'USD'}}};
+ let hook,remote,plan={id:planReference,status:'ACTIVE',billing_cycles:[{tenure_type:'TRIAL'},cycle]};
+
  let acceptedSecret=firstSecret;
  const billingFetcher=async(url,opts)=>{
-  const {pathname,hostname,searchParams}=new URL(url);
+  const {pathname,hostname}=new URL(url);
   assert.equal(hostname,'api-m.paypal.com');
   const method=opts.method||'GET',body=opts.body?.startsWith('{')?JSON.parse(opts.body):null;
   if(pathname===paths.oauth){
@@ -124,24 +127,10 @@ test('owner settings verify and encrypt Live PayPal credentials, then launch mon
    assert.equal(new Set(body.event_types.map(x=>x.name)).size,8);
    tx.hooks++;hook={id:'HOOK-3139',...body};return Response.json(hook,{status:201});
   }
-  if(pathname.startsWith(paths.products+'/')){
-   if(!product)return new Response(null,{status:404});
-   assert.equal(pathname,paths.products+'/'+product.id);return Response.json(product);
-  }
-  if(pathname===paths.products&&method==='POST'){tx.products++;product=body;return Response.json(product,{status:201});}
-  if(pathname===paths.plans&&method==='GET'){
-   assert.equal(searchParams.get('product_id'),product.id);
-   return Response.json({plans:plan?[{id:plan.id,name:plan.name}]:[]});
-  }
-  if(pathname===paths.plans&&method==='POST'){
-   assert.equal(body.product_id,product.id);
-   assert.deepEqual(body.billing_cycles,[{frequency:{interval_unit:'MONTH',interval_count:1},tenure_type:'REGULAR',sequence:1,total_cycles:0,pricing_scheme:{fixed_price:{value:'31.39',currency_code:'USD'}}}]);
-   tx.plans++;plan={id:planReference,...body};return Response.json(plan,{status:201});
-  }
-  if(pathname===paths.plans+'/'+planReference)return Response.json(plan);
+  if(pathname===paths.plans+'/'+planReference&&method==='GET')return Response.json(plan);
   if(pathname==='/v1/billing/subscriptions'){
    assert.equal(body.plan_id,planReference);
-   tx.subscribers++;remote={...body,id:'I-LAUNCH3139',billing_info:{next_billing_time:new Date(Date.now()+30*86400000).toISOString()}};
+   tx.subscribers++;remote={...body,id:'I-LAUNCH-'+tx.subscribers,billing_info:{next_billing_time:new Date(Date.now()+30*86400000).toISOString()}};
    return Response.json({...remote,links:[{rel:'approve',href:'https://www.paypal.com/approve'}]});
   }
   if(pathname==='/v1/billing/subscriptions/'+remote?.id)return Response.json(remote);
@@ -198,24 +187,41 @@ test('owner settings verify and encrypt Live PayPal credentials, then launch mon
  assert.equal(status.paypalSetup.credentialsReady,true);
  assert.equal(status.paypalSetup.linked,false);
  assert.doesNotMatch(JSON.stringify(status),new RegExp(clientId+'|'+firstSecret));
- assert.deepEqual(tx,{hooks:0,products:0,plans:0,subscribers:0});
+ assert.deepEqual(tx,{hooks:0,subscribers:0});
+ const badPlan=await req(setup,{body:{},auth:owner});
+ assert.equal(badPlan.status,409);
+ assert.match((await badPlan.json()).error,/includes a trial cycle/);
+ assert.equal(tx.hooks,0);
+ plan={...plan,billing_cycles:[cycle]};
  const first=await req(setup,{body:{},auth:op});assert.equal(first.status,200);
  const {id,enabled}=await first.json();assert.ok(enabled);
  const repeat=await req(setup,{body:{},auth:op});assert.deepEqual(await repeat.json(),{id,enabled:true});
- assert.deepEqual(tx,{hooks:1,products:1,plans:1,subscribers:0});
+ assert.deepEqual(tx,{hooks:1,subscribers:0});
  const vendorPath='/api/admin/'+merchant.tenants[0].id+'/billing';
  const data=await (await req(vendorPath,{auth:merchant})).json();
  const offer=data.plans.find(x=>x.id===id);
- assert.deepEqual([offer.amount,offer.currency,offer.paypalOnly],[3139,'USD',true]);
+ assert.deepEqual([offer.amount,offer.currency,offer.paypalOnly,offer.paypal_plan],[3139,'USD',true,planReference]);
  assert.equal((await req(vendorPath+'/checkout',{body:{plan:id,provider:'fygaro'},auth:merchant})).status,400);
  assert.equal((await req(vendorPath+'/checkout',{body:{plan:id,provider:'paypal'},auth:merchant})).status,200);
+ const tenant=merchant.tenants[0];
+ assert.equal(Date.parse(remote.start_time),Math.ceil(tenant.trial_end/1000)*1000);
+ const headers=Object.fromEntries(['auth-algo','cert-url','transmission-id','transmission-sig','transmission-time'].map(k=>['PayPal-'+k,'fixture']));
+ const cancelled={id:'EV-CANCEL-TRIAL',event_type:'BILLING.SUBSCRIPTION.CANCELLED',resource:{id:remote.id}};
+ assert.equal((await req('/api/billing/hooks/paypal',{body:cancelled,headers})).status,200);
+ const detail=await (await req('/api/operator/stores/'+tenant.id,{auth:op})).json();
+ assert.equal(detail.accessible,true);
+ await database.run('UPDATE tenants SET trial_end=? WHERE id=?',Date.now()-1000,tenant.id);
+ assert.equal((await req(vendorPath+'/checkout',{body:{plan:id,provider:'paypal'},auth:merchant})).status,200);
+ assert.equal(remote.start_time,undefined);
  assert.equal((await req(settings,{body:{...credentials,clientId:'other-live-app'},auth:owner})).status,409);
  acceptedSecret=newSecret;
  assert.equal((await req(settings,{body:{clientId:'',secret:newSecret,currentPassword:password},auth:owner})).status,200);
  assert.equal(decrypt((await readSaved()).value,key).secret,newSecret);
- assert.equal((await req(setup,{body:{},auth:owner})).status,200);
+ await database.run('UPDATE plaza_plans SET paypal_plan=?,enabled=0 WHERE id=?','P-OLDER-FIXTURE',launchPlan.id);
+ const relink=await req(setup,{body:{},auth:owner});
+ assert.deepEqual(await relink.json(),{id,enabled:false});
+ assert.equal((await getSettings(owner)).paypalSetup.planId,planReference);
  const body={id:'EV-LAUNCH',event_type:'PAYMENT.SALE.COMPLETED',resource:{id:'SALE-LAUNCH',billing_agreement_id:remote.id,amount:{total:'31.39',currency:'USD'}}};
- const headers=Object.fromEntries(['auth-algo','cert-url','transmission-id','transmission-sig','transmission-time'].map(k=>['PayPal-'+k,'fixture']));
  assert.equal((await req('/api/billing/hooks/paypal',{body,headers})).status,200);
  const after=await (await req(vendorPath,{auth:merchant})).json();
  assert.equal(after.rentals[0].status,'active');

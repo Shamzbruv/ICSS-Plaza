@@ -20,3 +20,11 @@
  .site-nav{height:auto;min-height:78px;flex-wrap:wrap;gap:10px;padding-block:16px 12px}
  .site-nav .nav-links{order:3;display:flex;flex:0 0 100%;gap:clamp(14px,3vw,28px);overflow-x:auto;white-space:nowrap;padding:6px 3px}
 }
+.trial-offer{display:flex;align-items:center;gap:clamp(12px,2vw,26px);margin:10px 0 0;padding:15px clamp(16px,3vw,28px);border:1px solid #bfddd7;border-radius:18px;background:#eef8f4;color:#123b45}
+.trial-badge{flex:none;border-radius:8px;padding:8px 11px;background:#124953;color:#fff;font-size:.72rem;letter-spacing:.09em;font-weight:800}
+.trial-offer p{flex:1;margin:0;line-height:1.35}
+.trial-offer p span{display:block;font-size:.88rem;margin-top:4px;color:#335c65}
+.trial-offer .btn{flex:none;white-space:nowrap}
+.trial-price strong{font-size:clamp(1.5rem,4vw,2.35rem)}
+@media(max-width:650px){.trial-offer{flex-wrap:wrap}.trial-offer p{flex-basis:calc(100% - 125px)}.trial-offer .btn{margin-left:auto}}
+@media(max-width:365px){.trial-offer p{flex-basis:100%}.trial-offer .btn{margin-left:0}}
