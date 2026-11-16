@@ -5,7 +5,27 @@ const esc=escapeHTML;
 const arrowIcon=()=>'<svg class="plaza-arrow-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 12l8-8M5 4h7v7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const logo=()=>'<a class="logo" href="/" aria-label="ICSS Plaza home"><img src="/assets/brand/logo-horizontal.png" alt="ICSS Plaza — by iCreate Solutions &amp; Services" width="900" height="220"></a>';
 const field=(label,name,value='',type='text')=>`<label class="field">${esc(label)}<input type="${type}" name="${name}" value="${esc(value)}"></label>`;
-export function footer(){return `<footer class="site-footer"><div class="wrap"><div class="footer-grid"><div>${logo()}<p>More businesses online. More possibilities.<br>Owned and operated by iCreate Solutions & Services, Jamaica.</p><p><a href="mailto:icreatesolutions.ja@gmail.com">icreatesolutions.ja@gmail.com</a><br><a href="https://wa.me/18765857469">WhatsApp +1 876-585-7469</a></p></div><div class="footer-links"><a href="/sell-online-jamaica">Sell online in Jamaica</a><a href="/online-store-templates">Storefront templates</a><a href="/ecommerce-payments-jamaica">Jamaican ecommerce payments</a><a href="/online-store-pricing">Trial & pricing</a><a href="/legal/terms">Terms</a><a href="/legal/privacy">Privacy</a><a href="/legal/refunds">Plaza rental refunds</a><a href="/legal/shopping">Shopping with vendors</a><a href="/legal/vendor-agreement">Vendor agreement</a><a href="/report">Report a vendor</a><a href="/legal/acceptable-use">Acceptable use</a><a href="/legal/cookies">Cookies</a><a href="/consultation">Request a consultation</a><a href="/developer">Developer sign-in</a></div></div><div class="copyright">© ${new Date().getFullYear()} iCreate Solutions & Services. ICSS Plaza. Independent stores. One place to start.</div></div></footer>`;}
+const footerGroups=[
+ ['Explore',[
+  ['Sell online in Jamaica','/sell-online-jamaica'],['Storefront templates','/online-store-templates'],
+  ['Payment options','/ecommerce-payments-jamaica'],['Trial & pricing','/online-store-pricing']]],
+ ['Get help',[
+  ['Request a consultation','/consultation'],['Shopping with vendors','/legal/shopping'],
+  ['Report a vendor','/report'],['Email us','mailto:icreatesolutions.ja@gmail.com'],
+  ['WhatsApp','https://wa.me/18765857469','WhatsApp +1 876-585-7469']]],
+ ['Policies',[
+  ['Platform terms','/legal/terms'],['Privacy','/legal/privacy'],['Rental refunds','/legal/refunds'],
+  ['Vendor agreement','/legal/vendor-agreement'],['Acceptable use','/legal/acceptable-use'],['Cookies','/legal/cookies']]]
+];
+export function footer(){
+ return `<footer class="site-footer plaza-footer"><div class="wrap">
+  <div class="plaza-footer-top">
+   <div class="plaza-footer-brand">${logo()}<p>Build your own online store and sell with confidence in Jamaica.</p><span class="plaza-footer-origin"><span aria-hidden="true"></span> Built for Jamaican businesses</span></div>
+   <nav class="plaza-footer-nav" aria-label="Footer">${footerGroups.map(([label,links])=>`<section class="plaza-footer-group"><h2>${esc(label)}</h2><ul>${links.map(([text,href,aria])=>`<li><a href="${esc(href)}"${aria?` aria-label="${esc(aria)}"`:''}>${esc(text)}${aria?arrowIcon():''}</a></li>`).join('')}</ul></section>`).join('')}</nav>
+  </div>
+  <div class="plaza-footer-bottom"><small>© ${new Date().getFullYear()} iCreate Solutions &amp; Services, Jamaica</small><a href="/developer">Developer sign-in ${arrowIcon()}</a></div>
+ </div></footer>`;
+}
 export function nav(){return `<header class="wrap"><nav class="site-nav" aria-label="Main navigation">${logo()}<div class="nav-links"><a href="/sell-online-jamaica">How to sell online</a><a href="/online-store-templates">Templates</a><a href="/ecommerce-payments-jamaica">Payments</a><a href="/online-store-pricing">Pricing</a><a href="/consultation">Consultation</a></div><div class="nav-actions"><a href="/login">Log in</a><a class="btn" href="/signup">Start your store ${arrowIcon()}</a></div></nav></header>`;}
 export function mini(s=demoStore().settings){return `<div class="window"><div class="window-chrome"><i></i><i></i><i></i><span>ICSS Plaza / ${esc(s.name.toLowerCase().replaceAll(' ','-'))}</span></div><div class="mini-nav">${esc(s.name)}<small><span>Shop</span><span>Our story</span><span>Bag (0)</span></small></div><div class="mini-hero"><div class="mini-copy"><small>${esc(s.tagline)}</small><h3>${esc(s.heroTitle)}</h3><span class="pill" style="background:${esc(s.accent)}">${esc(s.heroButton)}</span></div><img src="/assets/collection.svg" alt="Sample store collection"></div><div class="mini-products">${['serum','tote','candle'].map((x,i)=>`<div><img src="/assets/${x}.svg" alt="Sample product"><p>${['Botanical body oil','The everyday tote','Calm candle'][i]}</p></div>`).join('')}</div></div>`;}
 function frontStage(){return `<div class="front-stage" aria-label="An example lifestyle shop created in ICSS Plaza">

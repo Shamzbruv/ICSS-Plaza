@@ -1,4 +1,4 @@
-import {footer,nav,mini,landing,marketingPage} from './marketing.js?v=plaza-launch-3';
+import {footer,nav,mini,landing,marketingPage} from './marketing.js?v=plaza-footer-1';
 import {pathInStore,retailURL} from './retail-route.js?v=retail-1';
 import {featurePanel,featureDialog,featureRequest} from './vendor-features.js?v=growth-1';
 import {workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=plaza-launch-2';
