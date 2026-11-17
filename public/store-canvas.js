@@ -1,4 +1,4 @@
-import {renderStorefront,sectionPage} from './storefront.js?v=retail-1';
+import {renderStorefront,sectionPage} from './storefront.js?v=plaza-careers-1';
 import {readRetailRoute} from './retail-route.js?v=retail-1';
 
 const root=document.querySelector('#canvas-root');

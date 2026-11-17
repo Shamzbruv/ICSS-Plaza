@@ -47,17 +47,17 @@ export const defaults = () => ({
   catalogTitle: 'Explore the collection', navShopLabel: 'Shop', navAboutLabel: 'Our story', footerText: 'Thank you for supporting our business.', customPages: [], aboutTitle: 'A little about us', about: 'We believe in good products and even better service.', contactEmail: '', phone: '', address: '', instagram: '',
   shipping: 'Contact us for delivery areas and estimated delivery times.', returns: 'Contact the seller before returning an item. Your statutory rights remain unaffected.', privacy: 'We use your order details to fulfil your purchase and provide customer service. Contact us about access, correction or deletion of your personal information.', terms: 'Orders are subject to stock availability. Please check product descriptions and delivery details before ordering.',
   shippingFee: 0, freeShippingOver: 0, taxBps: 0, taxLabel: 'Tax', pickup: true, shippingEnabled: true, showAbout: true, showHero: true,
-  categories: ['All products'], defaultPayment: '', published: false, bagLabel:'Bag', heroAlt:'', grid:'standard', headerStyle:'split'
+  categories: ['All products'], defaultPayment: '', published: false, siteMode:'shop',heroDestination:'shop',bagLabel:'Bag', heroAlt:'', grid:'standard', headerStyle:'split'
 });
 export function settings(input, current) {
  const out = {...current};
- for (const k of ['name','tagline','heroTitle','heroButton','aboutTitle','announcement','taxLabel','catalogTitle','navShopLabel','navAboutLabel','footerText','bagLabel','heroAlt','searchLabel']) if (k in input) out[k] = text(input[k], 180, k === 'name' ? 1 : 0);
- for (const k of ['heroText','about','shipping','returns','privacy','terms','address']) if (k in input) out[k] = text(input[k], 6000);
+ for (const k of ['name','tagline','heroTitle','heroButton','aboutTitle','announcement','taxLabel','catalogTitle','navShopLabel','navAboutLabel','navContactLabel','footerText','bagLabel','heroAlt','searchLabel']) if (k in input) out[k] = text(input[k], 180, k === 'name' ? 1 : 0);
+ for (const k of ['heroText','about','shipping','returns','privacy','terms','address','contactIntro']) if (k in input) out[k] = text(input[k], 6000);
  for (const k of ['contactEmail','phone','instagram']) if (k in input) out[k] = text(input[k], 200);
  if (out.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.contactEmail)) fail('Enter a valid contact email.');
  for (const k of ['accent','background','ink']) if (k in input) { if (!/^#[0-9a-f]{6}$/i.test(input[k])) fail('Invalid theme colour.'); out[k] = input[k]; }
  for (const k of ['logo','heroImage']) if (k in input) out[k] = imageURL(input[k]);
- for (const [k, values] of Object.entries({font:['serif','sans'],layout:['editorial','minimal','market','runway','boutique'],currency:['JMD','USD'],grid:['compact','standard','large'],headerStyle:['split','centered']})) if (k in input) { if (!values.includes(input[k])) fail('Invalid setting.'); out[k] = input[k]; }
+ for (const [k, values] of Object.entries({font:['serif','sans'],layout:['editorial','minimal','market','runway','boutique'],currency:['JMD','USD'],grid:['compact','standard','large'],headerStyle:['split','centered'],siteMode:['shop','enquiries'],heroDestination:['shop','contact','about']})) if (k in input) { if (!values.includes(input[k])) fail('Invalid setting.'); out[k] = input[k]; }
  if('template' in input&&input.template!==(current.template||'classic'))fail('Your starter template is locked. You can still edit the store design.',409);
  if('sections' in input)out.sections=storeSections(input.sections);
  for (const k of ['shippingFee','freeShippingOver']) if (k in input) out[k] = integer(input[k]);

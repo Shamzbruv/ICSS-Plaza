@@ -112,3 +112,15 @@
 .retail-bag-layout .cart-line label{font-size:.75rem}
 .retail-main:focus{outline:none}
 @media(max-width:660px){.retail-bag-layout{grid-template-columns:1fr}}
+
+/* Information and enquiry sites use the same full-page canvas without shop chrome. */
+.retail.retail-enquiries .retail-head-inner{grid-template-columns:minmax(0,1fr) auto}
+.retail.retail-enquiries .retail-brand{justify-self:start}
+.retail-contact-link{justify-self:end;font-size:.82rem;text-align:center}
+.retail-enquiries .retail-nav{flex-wrap:wrap;column-gap:clamp(16px,3vw,45px);row-gap:0}
+.retail-enquiries .retail-prose .store-btn{margin-top:1.25rem}
+.retail-enquiries .retail-hero-copy{min-width:0}
+@media(max-width:480px){
+ .retail-enquiries .retail-nav a{padding-block:9px;font-size:.79rem}
+ .retail .retail-contact-link{font-size:.72rem;padding:.55rem .65rem;line-height:1.25;max-width:14ch}
+}

@@ -1,6 +1,7 @@
+import {exampleStore,getTemplate,sellsOnline} from '../public/store-templates.js';
 import { escapeHTML as esc, footer, homeSeo, landing, marketingPage, marketingPages, nav } from '../public/marketing.js';
 import { consultationPage } from '../public/platform-ui.js';
-import { getSections, renderStorefront } from '../public/storefront.js';
+import { getSections, renderStorefront, templateToolbar } from '../public/storefront.js';
 import { pathInStore, policyLabels, retailPages, retailURL } from '../public/retail-route.js';
 
 const site='ICSS Plaza', imagePath='/assets/brand/social-preview.png';
@@ -43,23 +44,23 @@ function productSchema(origin,path,store,item) {
   ...(item.sku?{sku:item.sku}:{}),...(photos.length?{image:photos.map(p=>absolute(origin,p))}:{}),offers};
 }
 
-function storefrontPage(path,search,store,origin) {
+function storefrontPage(path,search,store,origin,template) {
  if(!store)return {title:'Store unavailable | '+site,body:storeUnavailable(),status:404};
  const route=pathInStore(path,search),{page,id}=route,{settings:s}=store;
- const base='/s/'+store.slug;
- const visible=getSections(s).filter(x=>!x.hidden);
+ const base=(template?'/templates/':'/s/')+store.slug;
+ const selling=sellsOnline(s),visible=getSections(s).filter(x=>!x.hidden);
  const item=page==='product'?store.products.find(p=>p.id===id):null;
  const custom=page==='page'?s.customPages?.[Number(id)]:null;
- const missing=page==='missing'||page==='product'&&!item||page==='page'&&(!custom||id!==String(Number(id)))||page==='about'&&!visible.some(x=>x.type==='about');
- const label=item?.name||custom?.title||policyLabels[id]||retailPages[page];
+ const missing=page==='missing'||!selling&&(['shop','product','bag','reviews'].includes(page)||page==='policies'&&id!=='privacy')||page==='product'&&!item||page==='page'&&(!custom||id!==String(Number(id)))||page==='about'&&!visible.some(x=>x.type==='about');
+ const label=item?.name||custom?.title||policyLabels[id]||(page==='contact'?s.navContactLabel:page==='about'?s.navAboutLabel:'')||retailPages[page];
  const title=missing?'Page not found | '+s.name:page==='home'?s.name+' | '+site:label+' | '+s.name;
- const description=clean(item?.description||custom?.content||({home:s.heroText,about:s.about,policies:s[id]})[page],
-  page==='home'?'Shop online with '+s.name+'.':label+' at '+s.name+'.');
+ const description=clean(item?.description||custom?.content||({home:s.heroText,about:s.about,policies:s[id],contact:s.contactIntro})[page],
+  page==='home'?(selling?'Shop online with ':'Visit ')+s.name+'.':label+' at '+s.name+'.');
  const params=new URLSearchParams(search);
  const filters=page==='shop'&&['category','q','sort','offset'].some(x=>params.has(x));
- const index=!missing&&!filters&&!['bag','policies'].includes(page)&&
+ const index=!template&&!missing&&!filters&&!['bag','policies'].includes(page)&&
   !(page==='journal'&&!store.features?.journal?.length)&&!(page==='reviews'&&!store.reviews?.length);
- const body=renderStorefront(store,{route:missing?{page:'missing'}:route,basePath:base});
+ const body=(template?templateToolbar(template):'')+renderStorefront(store,{route:missing?{page:'missing'}:route,basePath:base,trust:!template,preview:!!template});
  const parts=[[s.name,base],...(page==='product'?[[s.navShopLabel||'Shop',base+'/shop']]:[]),[label,path]];
  const graph=index&&origin&&page!=='home'?[breadcrumbs(origin,parts),...(item&&!store.checkoutBlocked?[productSchema(origin,path,store,item)]:[])]:[];
  return {title,description,index,body,graph,image:item?[item.image,...(item.gallery||[])].map(safeImage).find(Boolean):safeImage(s.heroImage),status:missing?404:200};
@@ -68,10 +69,11 @@ function storefrontPage(path,search,store,origin) {
 export const storefrontPaths=store=>{
  const base='/s/'+store.slug;
  const visible=getSections(store.settings).filter(s=>!s.hidden);
- return [base,base+'/shop',base+'/contact',...(visible.some(x=>x.type==='about')?[base+'/about']:[]),
+ const selling=sellsOnline(store.settings);
+ return [base,...(selling?[base+'/shop']:[]),base+'/contact',...(visible.some(x=>x.type==='about')?[base+'/about']:[]),
   ...(store.features?.journal?.length?[base+'/journal']:[]),
   ...(store.settings.customPages||[]).map((_,i)=>retailURL(base,'page',{id:String(i)})),
-  ...store.products.map(p=>retailURL(base,'product',{id:p.id}))];
+  ...(selling?store.products.map(p=>retailURL(base,'product',{id:p.id})):[])];
 };
 
 export function pageSeo({path,search='',origin,store,verify}) {
@@ -84,6 +86,10 @@ export function pageSeo({path,search='',origin,store,verify}) {
    [breadcrumbs(origin,[[site,'/'],[page.kicker||'Consultation',path]])]);
   data={title:page.title,description:page.description,index:true,body:page.render(),graph};
  }else if(path.startsWith('/s/'))data=storefrontPage(path,search,store,origin);
+ else if(path.startsWith('/templates/')){
+  const template=getTemplate(path.split('/')[2]);
+  data=template?storefrontPage(path,search,exampleStore(template),origin,template):{title:'Template not found | '+site,body:storeUnavailable(),status:404};
+ }
  else{
   const label=({admin:'Store dashboard',developer:'Developer console',operator:'Developer console',login:'Log in',signup:'Start your store',reset:'Reset your password','test-access':'Test workspace',report:'Report a vendor',demo:'Store builder demo',templates:'Template preview',legal:'Policies'})[path.split('/')[1]];
   data={title:label?label+' | '+site:site};

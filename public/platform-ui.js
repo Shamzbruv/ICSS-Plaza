@@ -1,4 +1,4 @@
-import {templates} from './store-templates.js?v=retail-1';
+import {templateGroups} from './store-templates.js?v=plaza-careers-1';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=x=>x?new Date(x).toLocaleDateString('en-JM',{dateStyle:'medium'}):'—';
 const money=(amount,currency)=>new Intl.NumberFormat('en-JM',{style:'currency',currency}).format(amount/100);
@@ -50,8 +50,8 @@ export function developerView(tab,d,{trustHTML='' }={}) {
   `<label class="field">Find a store<input id="developer-store-search" placeholder="Search by store, email or status"></label>`+
   table(['Store','Owner','Access','Actions'],d.vendors.map(t=>[`<strong>${esc(t.settings.name)}</strong> ${t.test?pill('Test vendor'):''}<p class="small">/s/${esc(t.slug)}</p>`,esc(t.email),t.test?pill('Private test store'):pill(t.status)+(t.status==='trial'?`<p class="small">Ends ${fmt(t.trial_end)}</p>`:''),
   act('Open vendor workspace','vendor-support',t.id)+act('Details','tenant-detail',t.id)+(t.primaryTest?act('Generate test login','generate-test-login',t.id):t.test?'':act('Rental','rental',t.id)+act('Reset access','issue-reset',t.id))])));
- if(tab==='templates')return panel('Storefront template library','Open any of the six storefronts to review its layout and sample catalogue, without signing up or creating a store.',
-  `<div class="template-grid">${templates.map(t=>`<article class="template-card"><img src="${t.art}" width="960" height="600" alt=""><div class="developer-template-details"><strong>${esc(t.label)}</strong><p>${esc(t.description)}</p></div><a href="/templates/${t.id}" target="_blank" rel="noopener">Open storefront preview ↗</a></article>`).join('')}</div>`);
+ if(tab==='templates')return panel('Website and storefront template library','Open any starter as a full website. The previews use sample content and do not create a workspace.',
+  templateGroups.map(([label,items])=>`<section class="developer-template-group"><h3>${esc(label)}</h3><div class="template-grid">${items.map(t=>`<article class="template-card"><img src="${t.art}" width="960" height="600" alt="" loading="lazy"><div class="developer-template-details"><strong>${esc(t.label)}</strong><p>${esc(t.description)}</p></div><a href="/templates/${t.id}" target="_blank" rel="noopener">Open ${t.group==='professional'?'website':'storefront'} preview ↗</a></article>`).join('')}</div></section>`).join(''));
  if(tab==='subscriptions')return (b.paypalSetup?panel('Live PayPal setup','Connect PayPal for the US$31.39 monthly Plaza rental (the launch equivalent of J$5,000).',
   (b.paypalSetup.planId?`<p class="small">PayPal plan: <code>${esc(b.paypalSetup.planId)}</code></p>`:'')+(b.paypalSetup.credentialsReady?
    `<p>${b.paypalSetup.enabled?'Your PayPal plan is linked and accepts new subscriptions.':b.paypalSetup.linked?'PayPal is linked. Reopen the plan below to accept new subscriptions.':'The credentials are ready. Complete setup to link your existing plan and connect payment notifications.'}</p>`:

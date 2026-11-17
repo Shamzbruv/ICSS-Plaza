@@ -209,3 +209,15 @@
 @media(prefers-reduced-motion:reduce){.start-choice{transition:none}}
 
 .plaza-arrow-icon{display:inline-block;vertical-align:middle;flex:none}.stage-shop-button .plaza-arrow-icon{width:10px;height:10px}.stage-chip .plaza-arrow-icon{transform:rotate(-90deg)}
+
+.start-choice-group>h2{font-size:.83rem;letter-spacing:.06em;text-transform:uppercase;margin:20px 0 9px;color:var(--launch-ink)}
+.front-professional{margin-top:20px}
+.template-collections>nav{display:flex;flex-wrap:wrap;gap:.65rem;margin-bottom:2rem}
+.template-collections>nav a{padding:.6rem .95rem;border-radius:999px;border:1px solid var(--line);font-weight:750}
+.template-collections>section{scroll-margin-top:24px}
+.template-collections>section+section,.developer-template-group+.developer-template-group{margin-top:2rem}
+.template-collections>section>h2,.developer-template-group>h3{margin:0 0 .4rem}
+.template-collections>section>p{margin:0 0 1rem;max-width:55ch}
+.template-collections .template-card h3{font-size:1.16rem;margin:0 0 6px;line-height:1.25}
+.start-controls .start-quick-preview{display:none;color:#285d4d;text-decoration:underline;font-size:.76rem;font-weight:750;margin-top:2px}
+@media(max-width:720px){[data-signup-step=design] .start-controls .start-quick-preview:not([hidden]){display:inline-block}}

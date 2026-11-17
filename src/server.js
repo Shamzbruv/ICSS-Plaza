@@ -10,7 +10,7 @@ import { operatorAccess, ownerEmail, permitsSupport } from './operator-access.js
 import { launchTestAccess } from './test-access.js';
 import { policyVersion } from '../public/trust-data.js';
 import { emailMessage } from './email-design.js';
-import { getTemplate } from '../public/store-templates.js';
+import { getTemplate,sellsOnline } from '../public/store-templates.js';
 import { discountFor, featureMail, featureValue, liveFeatures, reviewValue } from './vendor-features.js';
 import { designKeys } from '../public/store-design-fields.js';
 import { mkdirSync, readFileSync, existsSync } from 'node:fs';
@@ -65,14 +65,26 @@ export async function createApp(options={}) {
  async function activeGateways(t){return (await all('SELECT * FROM gateways WHERE tenant_id=? AND enabled=1',t.id)).filter(g=>gateways.find(x=>x.id===g.provider)?.currencies.includes(t.settings.currency));}
  const visibleProducts=async tid=>(await all('SELECT id,data FROM products WHERE tenant_id=? ORDER BY created DESC',tid))
   .map(p=>({id:p.id,...JSON.parse(p.data)})).filter(p=>p.active);
+ async function needPublishingDetails(t,next,{checkCommerce=true}={}){
+  if(!sellsOnline(next)){
+   if(!next.contactEmail||!next.privacy)fail('Add a public contact email and privacy notice before publishing your website.');
+   return;
+  }
+  if(!next.contactEmail||!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('Add seller contact details, business address, delivery, return, privacy and terms policies before publishing.');
+  if(!checkCommerce)return;
+  if(!next.defaultPayment)fail('Set up and select a default payment method before publishing.');
+  if(!(await activeGateways({...t,settings:next})).some(g=>g.provider===next.defaultPayment))fail('Default payment must be enabled and support this currency.');
+  if(!(await visibleProducts(t.id)).length)fail('Add an active product before publishing.');
+ }
  async function publicStore(t,{restriction,full=true}={}){
   if(!t?.settings.published||restriction==='suspend'||!await available(t))return null;
   if(restriction===undefined)restriction=await storefrontRestriction(t.id);
   if(restriction==='suspend')return null;
   const {designDraft,features,...publicSettings}=t.settings;
-  const store={id:t.id,slug:t.slug,settings:publicSettings,features:liveFeatures(t.settings),
-   checkoutBlocked:restriction==='checkout',products:await visibleProducts(t.id)};
-  if(full){store.reviews=await reviews(t.id,true);store.gateways=(await activeGateways(t)).map(publicGateway);}
+  const selling=sellsOnline(publicSettings),publicFeatures=liveFeatures(t.settings);
+  const store={id:t.id,slug:t.slug,settings:publicSettings,features:selling?publicFeatures:{journal:publicFeatures.journal},
+   checkoutBlocked:selling&&restriction==='checkout',products:selling?await visibleProducts(t.id):[]};
+  if(full){store.reviews=selling?await reviews(t.id,true):[];store.gateways=selling?(await activeGateways(t)).map(publicGateway):[];}
   return store;
  }
  let sitemapCache=null;
@@ -248,7 +260,7 @@ export async function createApp(options={}) {
  const template=getTemplate(b.template);
  if(!template)fail('Choose a storefront template.');
  const uid=id(),tid=id(),storeName=text(b.name,180,1),now=Date.now();
- const initial={...defaults(),...template.settings,template:template.id,name:storeName,contactEmail:em};
+ const initial={...defaults(),...template.settings,template:template.id,name:storeName,contactEmail:sellsOnline(template.settings)?em:''};
  await tx(async ()=>{
   if(await one('SELECT id FROM users WHERE email=?',em))fail('This email is already registered. Sign in instead.',409);
   if(await one('SELECT id FROM tenants WHERE slug=?',slug))fail('That store address is taken.',409);
@@ -296,16 +308,16 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  }
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)\/quote$/))&&method==='POST'){
   limit(req,'checkout-quote',60);
-  const t=await getTenant(m[1]);if(!await available(t)||!t.settings.published||await storefrontRestriction(t.id))fail('Store checkout is unavailable.',404);
+  const t=await getTenant(m[1]);if(!await available(t)||!t.settings.published||!sellsOnline(t.settings)||await storefrontRestriction(t.id))fail('Store checkout is unavailable.',404);
   const lines=await pricedLines(t,b.lines);
   return respond(res,await checkoutTotal(t,b,lines,b.delivery==='pickup'?'pickup':'shipping'));
  }
  if((m=path.match(/^\/api\/stores\/([a-z0-9-]+)\/orders$/))&&method==='POST'){
  limit(req,'checkout',60);
- const initial=await getTenant(m[1]);if(!await available(initial)||!initial.settings.published)fail('This store is not currently accepting orders.',409);
+ const initial=await getTenant(m[1]);if(!await available(initial)||!initial.settings.published||!sellsOnline(initial.settings))fail('This store is not currently accepting orders.',409);
  const idem=text(b.idempotency,100,16),orderToken=text(b.orderToken,100,32),fingerprint=hash(JSON.stringify(b));
  const result=await tx(async ()=>{
- const t=await getTenantId(initial.id);if(!await available(t)||!t.settings.published||await storefrontRestriction(t.id))fail('This store is not currently accepting orders.',409);
+ const t=await getTenantId(initial.id);if(!await available(t)||!t.settings.published||!sellsOnline(t.settings)||await storefrontRestriction(t.id))fail('This store is not currently accepting orders.',409);
  const existing=await one('SELECT * FROM orders WHERE tenant_id=? AND idempotency=?',t.id,idem);
  if(existing){if(existing.request_hash!==fingerprint)fail('Checkout key already used with different details.',409);return {order:readOrder(existing),existing:true};}
  const contact={name:text(b.customer?.name,160,1),email:email(b.customer?.email),phone:text(b.customer?.phone,60,3),address:text(b.customer?.address||'',1000)};
@@ -438,7 +450,7 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  const current=await getTenantId(idForStore),t=support?current:owner(req,current);let a;
  if(support){
   if(!await access.active(req,t.id))fail('Vendor support session ended.',403);
-  if(action==='settings'&&['published','currency','defaultPayment','contactEmail'].some(k=>Object.hasOwn(b,k)&&b[k]!==t.settings[k]))fail('Only the vendor can change publishing, currency, default payment, or the contact email.',403);
+  if(action==='settings'&&['published','currency','defaultPayment','contactEmail','siteMode'].some(k=>Object.hasOwn(b,k)&&b[k]!==t.settings[k]))fail('Only the vendor can change publishing, currency, default payment, or the contact email.',403);
   await audit(t.id,req.user.id,'vendor-support.'+method.toLowerCase()+'.'+action.replaceAll('/','.')+'.'+support.id);
  }
  if(action==='design'&&method==='PUT'){
@@ -451,7 +463,7 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
   await checkDesignMedia(next,t.id);
   if(b.mode==='apply'&&current.published){
    if(!await available(t))fail('Your store rental is inactive.',403);
-   if(!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('A live storefront needs the seller address and delivery, returns, privacy and sales policies.');
+   await needPublishingDetails(t,next,{checkCommerce:!sellsOnline(current)});
   }
   const draft=Object.fromEntries(Object.keys(patch).map(k=>[k,next[k]]));
   const updated=b.mode==='apply'?next:b.mode==='save'?{...current,designDraft:draft}:current;
@@ -464,8 +476,8 @@ const user=(await one('SELECT * FROM users WHERE id=?',req.user.id));if(!passwor
  if(next.published&&!t.settings.published&&next.designDraft){const {designDraft,...current}=next;next=settings(designDraft,current);}
  await checkDesignMedia(next,t.id);
  if(next.currency!==t.settings.currency&&(await one('SELECT id FROM orders WHERE tenant_id=? LIMIT 1',t.id)))fail('Currency cannot change after the first order. Contact support.');
- const methods=(await activeGateways({...t,settings:next}));if(next.defaultPayment&&!methods.some(g=>g.provider===next.defaultPayment))fail('Default payment must be enabled and support this currency.');
- if(next.published){if(!support&&!await available(t))fail('Your store rental is inactive.',403);if(!next.contactEmail||!next.address||!next.shipping||!next.returns||!next.privacy||!next.terms)fail('Add seller contact details, business address, delivery, return, privacy and terms policies before publishing.');if(!next.defaultPayment)fail('Set up and select a default payment method before publishing.');if(!(await all('SELECT data FROM products WHERE tenant_id=?',t.id)).some(p=>JSON.parse(p.data).active))fail('Add an active product before publishing.');}
+ if(!next.published&&sellsOnline(next)&&next.defaultPayment&&!(await activeGateways({...t,settings:next})).some(g=>g.provider===next.defaultPayment))fail('Default payment must be enabled and support this currency.');
+ if(next.published){if(!support&&!await available(t))fail('Your store rental is inactive.',403);await needPublishingDetails(t,next);}
  (await run('UPDATE tenants SET settings=? WHERE id=?',JSON.stringify(next),t.id));await audit(t.id,req.user.id,'settings.updated');if(next.published&&!t.settings.published)await audit(t.id,req.user.id,'publish.vendor-agreement.'+policyVersion);return {payload:{settings:next}};
  }
  if(action==='sample-products'&&method==='POST'){
