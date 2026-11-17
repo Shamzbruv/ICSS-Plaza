@@ -1,5 +1,3 @@
-import {careerTemplates} from './career-templates.js';
-
 export const sectionTypes = {
  'hero':'Hero', 'catalog':'Product collection', 'about':'Our story', 'promo':'Promotion banner',
  'image':'Image and text', 'gallery':'Photo gallery', 'video':'Video feature', 'categories':'Shop by category',
@@ -14,7 +12,7 @@ const starter=(id,label,description,colors,look,copy,categories,sections,items)=
  id,label,description,art:'/assets/template-'+id+'.svg',look,items,
  settings:{...colors,layout:look,heroImage:'/assets/template-'+id+'.svg',...copy,categories,sections}
 });
-export const retailTemplates=[
+export const templates=[
  starter('wholesale','Market & Wholesale','Groceries, case packs, household supplies and neighbourhood distribution.',{accent:'#176348',background:'#f6f7ec',ink:'#172e26',font:'sans'},'market',{
  tagline:'Pantry • Produce • Home',heroTitle:'Stock up. Shop local.',heroText:'Find the pantry staples, bulk essentials and everyday supplies that keep Jamaica moving.',heroButton:'Shop the aisles',announcement:'Shop pantry essentials, drinks and household supplies',catalogTitle:'Shop by the case or by the item',aboutTitle:'Built for the weekly shop',about:'A one-stop shop for families, small businesses and teams stocking up for what comes next.',navShopLabel:'Shop groceries'
  },['Produce','Pantry','Drinks','Household'],collection([
@@ -37,7 +35,7 @@ export const retailTemplates=[
  tagline:'For the little moments',heroTitle:'Make it feel like home.',heroText:'Objects with character, practical favourites and gifts that feel personal.',heroButton:'Explore the collection',announcement:'Thoughtful picks for home and gifting',catalogTitle:'Find something worth keeping',aboutTitle:'A home with character',about:'Share your design approach, materials and what inspires your collection.'
  },['Décor','Kitchen','Gifts','Home fragrance'],collection([],[section('gallery','Details make the difference','Show your collection in real spaces.',{images:['/assets/template-home.svg','/assets/mug.svg','/assets/candle.svg']})]),[product('Sunday morning mug','Kitchen',220000,'mug'),product('Warm amber candle','Home fragrance',290000,'candle')])
 ];
-const market=retailTemplates.find(t=>t.id==='wholesale');
+const market=templates.find(t=>t.id==='wholesale');
 const photo=name=>'/assets/market-'+name+'.webp';
 market.art=photo('hero');
 market.settings.heroImage=photo('hero');
@@ -65,12 +63,9 @@ market.items=[
  {name:'Kitchen cleaning essentials',category:'Household',price:235000,image:photo('household'),sku:'MKT-104',description:'Kitchen basics including dishwashing supplies and reusable cleaning cloths.'},
  {name:'Wholesale grocery box',category:'Pantry',price:960000,image:photo('bulk'),sku:'MKT-105',description:'A larger grocery bundle for a shared kitchen or a small business. Review the available packs before ordering.'}
 ];
-export const templates=[...retailTemplates,...careerTemplates];
-export const templateGroups=[['Professional websites',careerTemplates],['Online shops',retailTemplates]];
-export const sellsOnline=s=>s.siteMode!=='enquiries';
 export const getTemplate=id=>id==='blank'?blankTemplate:templates.find(t=>t.id===id);
 export function exampleStore(t){
- return {slug:t.id,template:t.id,settings:{bagLabel:'Bag',navAboutLabel:'Our story',footerText:'Thanks for shopping with us.',showHero:true,showAbout:true,currency:'JMD',customPages:[],shipping:'Sample policy: choose delivery or pickup at checkout. A live merchant sets the available service areas, fees and collection instructions.',returns:'Sample policy: contact the seller using the order reference if any goods arrive damaged or incorrect. A live merchant publishes its own returns terms.',privacy:'Sample policy: a merchant uses contact and delivery details to process and support your order.',terms:'This is an example storefront. It does not accept orders or payments.',...t.settings,name:t.label},products:t.items.map((p,i)=>({...p,id:'sample-'+i,active:true,featured:i===0,stock:15,variants:(p.variants||[]).map(v=>({...v,stock:10})),description:p.description||'Sample product for this storefront template.'}))};
+ return {slug:t.id,template:t.id,settings:{...t.settings,name:t.label,bagLabel:'Bag',navAboutLabel:'Our story',footerText:'Thanks for shopping with us.',showHero:true,showAbout:true,currency:'JMD',customPages:[],shipping:'Sample policy: choose delivery or pickup at checkout. A live merchant sets the available service areas, fees and collection instructions.',returns:'Sample policy: contact the seller using the order reference if any goods arrive damaged or incorrect. A live merchant publishes its own returns terms.',privacy:'Sample policy: a merchant uses contact and delivery details to process and support your order.',terms:'This is an example storefront. It does not accept orders or payments.'},products:t.items.map((p,i)=>({...p,id:'sample-'+i,active:true,featured:i===0,stock:15,variants:(p.variants||[]).map(v=>({...v,stock:10})),description:p.description||'Sample product for this storefront template.'}))};
 }
 
 // A neutral starting point, intentionally without stock imagery or sample products.

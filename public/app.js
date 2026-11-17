@@ -1,14 +1,14 @@
-import {footer,nav,mini,landing,marketingPage} from './marketing.js?v=plaza-careers-1';
+import {footer,nav,mini,landing,marketingPage} from './marketing.js?v=plaza-footer-1';
 import {pathInStore,retailURL} from './retail-route.js?v=retail-1';
 import {featurePanel,featureDialog,featureRequest} from './vendor-features.js?v=growth-1';
-import {enquiryWorkspace,workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=plaza-careers-1';
+import {workspaceSidebar,workspaceTitle,workspaceTab,vendorDashboard,inventoryPanel,customersPanel} from './vendor-workspace.js?v=plaza-launch-2';
 import {demoStore} from './demo-data.js';
-import {renderStorefront} from './storefront.js?v=plaza-careers-1';
-import {createStoreStudio,templatePage,studioMediaOptions} from './store-studio.js?v=plaza-careers-1';
-import {signupExperience,updateSignupSelection,showSignupStep,suggestStoreSlug,launchpad} from './launch-experience.js?v=plaza-careers-1';
-import {getTemplate,sellsOnline} from './store-templates.js?v=plaza-careers-1';
+import {renderStorefront} from './storefront.js?v=retail-1';
+import {createStoreStudio,templatePage,studioMediaOptions} from './store-studio.js?v=plaza-launch-2';
+import {signupExperience,updateSignupSelection,showSignupStep,suggestStoreSlug,launchpad} from './launch-experience.js?v=plaza-launch-3';
+import {getTemplate} from './store-templates.js?v=plaza-launch-1';
 import {legalPages,policyVersion} from './legal.js?v=paypal-trial-1';
-import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=plaza-careers-1';
+import {consultationPage,consultantDialog,developerShell,developerView,billingPanel,consoleTabs} from './platform-ui.js?v=paypal-trial-1';
 import {publicReportPage,reportReceipt,reportCase,reportQueue,operatorCase} from './trust-ui.js';
 const app=document.querySelector('#app'), modal=document.querySelector('#modal');
 modal.addEventListener('close',()=>{modal.querySelector('[data-form="paypal-settings"]')?.reset();});
@@ -43,11 +43,11 @@ function signupPage(){
  document.title='Create your online store | ICSS Plaza';
  const requested=new URLSearchParams(location.search).get('template');
  const selected=getTemplate(requested)?.id;
- app.innerHTML=signupExperience({logo:logo(),selected,details:`<section class="start-account panel" aria-label="Website and account details">
-  <div class="eyebrow">ABOUT YOUR SITE</div><h3>Name and web address</h3>
-  <label class="field">Website name<input name="name" required maxlength="180" autocomplete="organization" placeholder="e.g. Harbour Driving School"></label>
-  <label class="field">Website address<span class="start-address"><span>icssplaza.com/s/</span><input name="slug" required minlength="3" maxlength="48" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="your-store" aria-describedby="address-hint" autocapitalize="none" spellcheck="false"></span></label>
-  <p class="start-field-note" id="address-hint">Use lowercase letters, numbers and hyphens. This will be the address you share with visitors.</p>
+ app.innerHTML=signupExperience({logo:logo(),selected,details:`<section class="start-account panel" aria-label="Store and account details">
+  <div class="eyebrow">ABOUT YOUR BUSINESS</div><h3>Name and web address</h3>
+  <label class="field">Store name<input name="name" required maxlength="180" autocomplete="organization" placeholder="e.g. Kingston Home Goods"></label>
+  <label class="field">Store address<span class="start-address"><span>icssplaza.com/s/</span><input name="slug" required minlength="3" maxlength="48" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="your-store" aria-describedby="address-hint" autocapitalize="none" spellcheck="false"></span></label>
+  <p class="start-field-note" id="address-hint">Use lowercase letters, numbers and hyphens. This will be the address you share with customers.</p>
   <div class="eyebrow">YOUR SIGN-IN</div><h3>Create your account</h3>
   <label class="field">Email address<input name="email" type="email" autocomplete="email" maxlength="200" required></label>
   <label class="field">Password<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" aria-describedby="password-hint" required></label>
@@ -60,7 +60,7 @@ function loadDemo(){let d=local.get(demoKey,null);if(!d||!d.settings||!Array.isA
 function saveDemo(){local.set(demoKey,state);}
 const tenantId=()=>state.id;
 async function refresh(){if(demo){saveDemo();return;}const r=await api('/api/admin/'+(support?.tenant||tenantId()));state={...r.tenant,...r};delete state.tenant;}
-const workspaceMode=()=>({support:!!support,demo,testWorkspace:state?.slug==='plaza-test-workspace',enquiries:enquiryWorkspace(state)});
+const workspaceMode=()=>({support:!!support,demo,testWorkspace:state?.slug==='plaza-test-workspace'});
 function goVendorTab(key){
  tab=workspaceTab(key,workspaceMode());
  history.replaceState(null,'',location.pathname+(tab==='overview'?'':'?tab='+encodeURIComponent(tab)));
@@ -70,26 +70,26 @@ function goVendorTab(key){
 }
 function shell(content){
  const title=workspaceTitle(tab,workspaceMode()),published=state.settings.published;
- const selling=sellsOnline(state.settings),bread=(selling?'Store':'Website')+' dashboard'+(tab==='overview'?'':' / '+title);
+ const bread=tab==='overview'?'Store dashboard':'Store dashboard / '+title;
  app.innerHTML=`${support?`<div class="banner support-banner vendor-context"><div><strong>Vendor support mode</strong><span> · ${esc(support.reason)} · Ends ${esc(new Date(support.expires).toLocaleTimeString('en-JM',{hour:'numeric',minute:'2-digit',timeZone:'America/Jamaica'}))}</span></div></div>`:''}${demo?`<div class="banner vendor-context"><span><strong>Demo playground</strong> · Sample changes stay in this browser.</span><div class="row">${button('Reset demo','reset-demo','outline sm')}<a class="btn sm" href="/signup">Start your store ↗</a></div></div>`:''}
  <div class="vendor-workspace ${support||demo?'has-context':''}">${workspaceSidebar({tab,state,support:!!support,demo,operator:session.operator})}
  <main class="main-work vendor-main"><header class="work-head vendor-heading"><div><div class="vendor-breadcrumb">${esc(bread)}</div><h1 tabindex="-1">${esc(title)}</h1><div class="vendor-store-meta"><span>${esc(state.settings.name)}</span><span class="tag ${published?'':'warn'}">${published?'Published':'Draft'}</span>${state.status==='trial'?'<span class="tag">Trial</span>':''}${!demo?`<small>/s/${esc(state.slug)}</small>`:''}</div></div>
- <div class="row vendor-head-actions">${button(selling?'Edit storefront':'Edit website','studio-open','sm')}${button(selling?'Preview storefront':'Preview website','preview','outline sm')}${!demo&&!support?button(published?'Unpublish':selling?'Publish store':'Publish website',published?'unpublish':'publish','outline sm'):''}</div></header>${content}</main></div>`;
+ <div class="row vendor-head-actions">${button('Edit storefront','studio-open','sm')}${button('Preview storefront','preview','outline sm')}${!demo&&!support?button(published?'Unpublish':'Publish store',published?'unpublish':'publish','outline sm'):''}</div></header>${content}</main></div>`;
 }
 function overview(){
  const setup=support?`<section class="panel vendor-panel"><h2>Storefront support</h2><p>Review the store with the vendor. Changes to products or inventory can affect their live shop.</p><div class="checklist"><button type="button" data-tab="appearance">Open Store Designer →</button><button type="button" data-tab="products">Review products →</button></div></section>`:launchpad(state,{demo,publicOrigin:location.origin});
- return vendorDashboard({state,money,support:!!support,demo,setup,previewButton:button(sellsOnline(state.settings)?'Preview storefront':'Preview website','preview','outline sm')});
+ return vendorDashboard({state,money,support:!!support,demo,setup,previewButton:button('Preview storefront','preview','outline sm')});
 }
 function productsPanel(){return `<section class="panel vendor-panel"><div class="section-head" style="margin-bottom:15px"><div><h2>Your collection</h2><p class="small">Prices use ${esc(state.settings.currency)}. Add variants for size, colour or other choices.</p></div>${button('+ Add product','add-product','sm')}</div>${state.products.length?'<div class="vendor-list-tools"><label class="field">Find a product<input type="search" data-vendor-filter placeholder="Search name, SKU or category"></label></div>':''}<div class="table-scroll"><table class="vendor-table"><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr></thead><tbody>${state.products.map(p=>`<tr data-vendor-row data-filter="${esc([p.name,p.sku,p.category].join(' '))}"><td><div class="table-product"><img class="thumb" src="${esc(p.image||'/assets/collection.svg')}" alt=""><div><strong>${esc(p.name)}</strong><p class="small">${esc(p.sku)}</p></div></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td>${p.variants.length?p.variants.reduce((a,v)=>a+v.stock,0):p.stock}</td><td><span class="tag ${p.active?'':'warn'}">${p.active?'Active':'Hidden'}</span></td><td>${button('Edit','edit-product','outline sm',`data-id="${esc(p.id)}"`)}</td></tr>`).join('')}</tbody></table>${state.products.length?'':`<div class="empty">${illustration('empty-products')}<p>Your next best seller starts here. Add your first product.</p></div>`}<p class="vendor-filter-empty" hidden>No matches. Try a different search.</p></div></section>`;}
 function customPageFields(p={title:'',content:''}){return `<div class="custom-page">${field('Page title','pageTitle',p.title)}${area('Page content','pageContent',p.content)}${button('Remove page','remove-page','outline sm','type="button"')}<hr style="border:0;border-top:1px solid var(--line);margin:20px 0"></div>`;}
 function contentPanel(){
- const s=state.settings,selling=sellsOnline(s);
- return `<form data-form="content"><section class="panel vendor-panel"><h2>${selling?'Store information':'Website information'}</h2><p>Edit the business details customers use to contact you, plus your store’s story and additional pages.</p><div class="form-grid">${support?'':field('Public contact email','contactEmail',s.contactEmail,'email')}${field('Business phone','phone',s.phone)}<div class="full">${area('Business name and address','address',s.address)}${field('Instagram handle','instagram',s.instagram)}${field('About section heading','aboutTitle',s.aboutTitle)}${area('Your story','about',s.about)}</div></div></section>
- <section class="panel vendor-panel"><h2>${selling?'Additional store pages':'Additional pages'}</h2><p>${selling?'Add a size guide, care instructions or a service guide to your storefront footer.':'Add pages for your services, schedule or other details. The first two appear in the website navigation.'}</p><div id="custom-pages">${(s.customPages||[]).map(customPageFields).join('')}</div><div class="row">${button('+ Add page','add-page','outline sm','type="button"')}<button class="btn" type="submit">Save site content</button></div><div class="form-error" role="alert"></div></section></form>`;
+ const s=state.settings;
+ return `<form data-form="content"><section class="panel vendor-panel"><h2>Store information</h2><p>Edit the business details customers use to contact you, plus your store’s story and additional pages.</p><div class="form-grid">${support?'':field('Seller contact email','contactEmail',s.contactEmail,'email')}${field('Business phone','phone',s.phone)}<div class="full">${area('Business name and address','address',s.address)}${field('Instagram handle','instagram',s.instagram)}${field('About section heading','aboutTitle',s.aboutTitle)}${area('Your story','about',s.about)}</div></div></section>
+ <section class="panel vendor-panel"><h2>Additional store pages</h2><p>Add a size guide, care instructions or a service guide to your storefront footer.</p><div id="custom-pages">${(s.customPages||[]).map(customPageFields).join('')}</div><div class="row">${button('+ Add page','add-page','outline sm','type="button"')}<button class="btn" type="submit">Save site content</button></div><div class="form-error" role="alert"></div></section></form>`;
 }
 function policiesPanel(){
- const s=state.settings,selling=sellsOnline(s);
- return `<form data-form="vendor-policies"><section class="panel vendor-panel"><h2>${selling?'Customer policies':'Website privacy'}</h2><p>${selling?'These are your store’s policies for customers. Review them before publishing. Plaza’s platform policies apply separately.':'Explain how you use the information people send when they contact you.'}</p>${selling?area('Delivery & shipping policy','shipping',s.shipping)+area('Returns, refunds & cancellations','returns',s.returns):''}${area('Privacy notice','privacy',s.privacy)}${selling?area('Sales terms','terms',s.terms):''}<div class="form-error" role="alert"></div><button class="btn" type="submit">Save policies</button></section></form>`;
+ const s=state.settings;
+ return `<form data-form="vendor-policies"><section class="panel vendor-panel"><h2>Customer policies</h2><p>These are your store’s policies for customers. Review them before publishing. Plaza’s platform policies apply separately.</p>${area('Delivery & shipping policy','shipping',s.shipping)}${area('Returns, refunds & cancellations','returns',s.returns)}${area('Customer privacy notice','privacy',s.privacy)}${area('Sales terms','terms',s.terms)}<div class="form-error" role="alert"></div><button class="btn" type="submit">Save policies</button></section></form>`;
 }
 function updateVendorFilter(panel){
  const search=(panel.querySelector('[data-vendor-filter]')?.value||'').trim().toLowerCase();
@@ -342,7 +342,7 @@ document.addEventListener('submit',async e=>{
  }catch(error){const box=(kind==='signup'?form.querySelector('.start-account .form-error'):null)||form.querySelector('.form-error');if(box){box.className='form-error error';box.textContent=error.message;}else toast(error.message);}finally{if(submit)submit.disabled=false;}
 });
 function showOrderReceipt(o){showModal(`${o.paid?illustration('payment-success'):''}<h2>${demo?'Sample order placed':'Order received'}</h2><p>Reference: <strong>${esc(o.short_id||o.id)}</strong></p><div class="note ${o.paid?'':'warn'}">${o.paid?'Payment confirmed.':demo?'Demo order saved. View it under Orders in the demo dashboard. No payment was taken.':'Your order is recorded. Payment is pending verification. Keep this order reference.'}</div><p>Total: ${money(o.total,o.currency)}${o.discount?' · Discount '+money(o.discount,o.currency):''}</p>${!demo&&o.paid&&o.state==='fulfilled'?(o.review?'<p>Your review has been submitted.</p>':`<details><summary>Write a verified review</summary><form data-form="submit-review" data-id="${esc(o.id)}">${select('Rating','rating','5',[['5','5 stars'],['4','4 stars'],['3','3 stars'],['2','2 stars'],['1','1 star']])}${field('Display name (optional)','name')}${area('Your review','comment')}<div class="form-error"></div><button class="btn sm" type="submit">Submit review</button></form></details>`):''}${!demo?`<p>Seller: <strong>${esc(o.seller?.name||store.settings.name)}</strong>. ${(o.seller?.email||store.settings.contactEmail)?`<a href="mailto:${esc(o.seller?.email||store.settings.contactEmail)}">Contact seller</a> · `:''}<a href="${esc(reportLink(o.slug||store.slug,o.short_id||''))}">Report this vendor</a></p>`:''}${o.policySnapshot?`<details><summary>Seller policies at the time of order</summary>${[['terms','Sales terms'],['shipping','Delivery'],['returns','Returns and refunds'],['privacy','Privacy notice']].map(([k,label])=>`<h3>${label}</h3><p class="preline">${esc(o.policySnapshot[k])}</p>`).join('')}</details>`:''}${o.payment?.instructions?`<p class="preline">${esc(o.payment.instructions)}</p>`:''}${o.payment?.url?`<a class="btn" href="${esc(o.payment.url)}" rel="noreferrer">Continue to payment provider ↗</a>`:''}${o.paymentError?`<p>${esc(o.paymentError)}</p>`:''}${!demo?(!o.paid&&!o.payment?.url&&o.state!=='cancelled'?button('Retry payment setup','retry-payment','outline sm'):'')+button('Refresh payment status','order-status','outline sm'):`<a class="btn outline" href="/demo?tab=orders">View demo orders →</a>`}`);}
-function publishDialog(){const selling=sellsOnline({...state.settings,...state.settings.designDraft});showModal(`<h2>${selling?'Publish as an independent vendor':'Publish your website'}</h2><p>${selling?'Your business is responsible for sales, fulfilment, returns and refunds. Your store policies must be accurate.':'Your pages and public contact details will be visible once you publish.'}</p><form data-form="publish-vendor"><label class="field check"><input name="vendorAcknowledgement" type="checkbox" required><span>I agree to the <a href="/legal/vendor-agreement" target="_blank" rel="noopener">independent vendor agreement</a> and confirm that my ${selling?'store':'website'} details and policies are current.</span></label><div class="form-error" role="alert"></div><button class="btn" type="submit">Publish ${selling?'store':'website'}</button></form>`);}
+function publishDialog(){showModal(`<h2>Publish as an independent vendor</h2><p>Your business is responsible for sales, fulfilment, returns and refunds. Your store policies must be accurate.</p><form data-form="publish-vendor"><label class="field check"><input name="vendorAcknowledgement" type="checkbox" required><span>I agree to the <a href="/legal/vendor-agreement" target="_blank" rel="noopener">independent vendor agreement</a> and confirm that my store details and policies are current.</span></label><div class="form-error" role="alert"></div><button class="btn" type="submit">Publish store</button></form>`);}
 document.addEventListener('click',async e=>{
  const el=e.target.closest('[data-action],[data-tab]');if(!el)return;
  try{
@@ -494,7 +494,7 @@ async function boot(){
  if(path==='/'){app.innerHTML=landing();return;}
  const guide=marketingPage(path);if(guide){app.innerHTML=guide;return;}
  if(path==='/test-access'){session=await api('/api/session');document.title='Plaza test access';app.innerHTML=`<main class="auth">${logo()}<h1>Open your test workspace.</h1><p>Use a private browser window to keep your live account signed in separately.</p><form data-form="claim-test">${field('Choose a password (12 or more characters)','password','','password')}${field('Confirm password','confirm','','password')}<div class="form-error" role="alert"></div><button type="submit" class="btn">Create my test account</button></form></main>`;return;}
- if(path.startsWith('/templates/')){const t=templatePage(path.split('/')[2]);if(!t){errorPage(Error('Template not found.'));return;}store=t.store;example=true;retailRoute=pathInStore(path,location.search);renderStore();return;}
+ if(path.startsWith('/templates/')){const t=templatePage(path.split('/')[2]);if(!t)throw Error('Template not found.');store=t.store;example=true;retailRoute=pathInStore(path,location.search);renderStore();return;}
  if(path==='/consultation'){session=await api('/api/session');app.innerHTML=nav()+consultationPage()+footer();return;}
  const vendorWorkspace=path.match(/^\/developer\/vendors\/([a-f0-9]{24})$/);
  if(vendorWorkspace){

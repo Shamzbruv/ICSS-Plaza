@@ -1,5 +1,5 @@
 import {demoStore} from './demo-data.js';
-import {templates,templateGroups} from './store-templates.js?v=plaza-careers-1';
+import {templates} from './store-templates.js?v=retail-1';
 export const escapeHTML=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const esc=escapeHTML;
 const arrowIcon=()=>'<svg class="plaza-arrow-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 12l8-8M5 4h7v7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -51,9 +51,8 @@ export function landing(){return nav()+`<main class="front-page">
   ${frontStage()}
  </section>
  <div class="wrap"><div class="front-proof" aria-label="What’s included"><div><strong>JMD or USD</strong><span>Sell in your currency</span></div><div><strong>Delivery &amp; pickup</strong><span>Set the rules for your shop</span></div><div><strong>Private drafts</strong><span>Preview before you publish</span></div><div><strong>One dashboard</strong><span>Products, stock and orders</span></div></div></div>
- <section class="wrap front-section" id="starting-points"><div class="front-section-heading"><div><div class="front-kicker">01 &nbsp; / &nbsp; THE STARTING POINT</div><h2>Pick a look.<br>Make it your own.</h2></div><p>Start with a layout built for your work, whether you sell products, offer services or run a ministry. Every starter is editable, from the photos and fonts to the order of the sections.</p></div>
+ <section class="wrap front-section" id="starting-points"><div class="front-section-heading"><div><div class="front-kicker">01 &nbsp; / &nbsp; THE STARTING POINT</div><h2>Pick a look.<br>Make it your own.</h2></div><p>Start with a layout built for your kind of shop. Every starter is editable, from the photos and fonts to the order of the sections.</p></div>
   <div class="front-templates">${['wholesale','fashion','yard'].map(id=>frontTemplate(templates.find(t=>t.id===id))).join('')}</div>
-  <div class="front-blank front-professional"><span aria-hidden="true">↗</span><div><strong>Build a website for your work.</strong><p>Driving instructors, pastors, tutors and other professionals can show what they do and take enquiries.</p></div><a class="btn outline" href="/online-store-templates#professional-websites">Explore professional templates →</a></div>
   <div class="front-blank"><span aria-hidden="true">＋</span><div><strong>Have something different in mind?</strong><p>Start from a blank canvas and build around your own brand.</p></div><a class="btn outline" href="/signup?template=blank">Start from scratch →</a><a class="front-secondary" href="/online-store-templates">Browse all templates →</a></div>
  </section>
  <section class="front-designer" id="demo"><div class="wrap front-section">
@@ -91,13 +90,13 @@ export const marketingPages={
    ['Test your first order, then share the store','Walk through the product page, bag and checkout on a phone. Once you are ready, share the shop link with existing customers, in your social profile, and on printed receipts or packaging.']
   ]},
  '/online-store-templates':{
-  title:'Online Store & Website Templates for Jamaica | ICSS Plaza',
-  description:'Preview website templates for Jamaica: online shops, driving schools, pastors and churches, catering, photography, tutoring and home services.',
-  kicker:'Template gallery',h1:'Choose a website or online shop template',
-  lead:'Preview a complete site before signing up. Online shops have a catalogue and shopping bag. Professional sites give you dedicated pages for what you do and how people can reach you.',
+  title:'Online Store Templates for Jamaican Businesses | ICSS Plaza',
+  description:'Preview six ecommerce storefronts for Jamaica, including grocery and wholesale, fashion, beauty, electronics, home goods and Jamaican-made products.',
+  kicker:'Storefront gallery',h1:'Choose an ecommerce template for your Jamaican business',
+  lead:'Preview a complete store before signing up. Every template includes a home page, product catalogue, product pages and a shopping bag you can make your own.',
   sections:[
    ['Make the store your own','Update your colours, photos, shop name and navigation. Add and arrange page sections in Store Designer, then preview the desktop or phone layout before publishing.'],
-   ['Choose a starting point for your work','Sell products through a catalogue, explain your services and invite enquiries, or welcome visitors to your ministry. Each design includes editable wording and pages.']
+   ['Choose a layout for what you sell','Compare the catalogue, product details and category layout. For wholesale, show single items and case packs; for fashion, group sizes or colours using product options.']
   ],gallery:true},
  '/ecommerce-payments-jamaica':{
   title:'Ecommerce Payments for Jamaican Online Stores | ICSS Plaza',
@@ -124,7 +123,6 @@ export const marketingPages={
 export function marketingPage(path){
  const p=marketingPages[path];
  if(!Object.hasOwn(marketingPages,path))return '';
- const gallery=p.gallery?`<div class="seo-gallery template-collections"><nav aria-label="Template categories"><a href="#professional-websites">Professional websites</a><a href="#online-shops">Online shops</a></nav>
- ${templateGroups.map(([label,items],i)=>`<section id="${i===0?'professional-websites':'online-shops'}"><h2>${esc(label)}</h2><p>${i===0?'Present your work and give visitors a clear way to contact you.':'Set out your products with categories, product pages and checkout.'}</p><div class="template-grid">${items.map(t=>`<article class="template-card"><img src="${esc(t.art)}" alt="" width="960" height="600" loading="lazy"><div class="developer-template-details"><h3>${esc(t.label)}</h3><p>${esc(t.description)}</p></div><a href="/templates/${t.id}">Preview ${esc(t.label)} →</a></article>`).join('')}</div></section>`).join('')}</div>`:'';
+ const gallery=p.gallery?`<section class="section seo-gallery"><div class="template-grid">${templates.map(t=>`<article class="template-card"><img src="${esc(t.art)}" alt="" width="960" height="600" loading="lazy"><div class="developer-template-details"><h2>${esc(t.label)}</h2><p>${esc(t.description)}</p></div><a href="/templates/${t.id}">Preview ${esc(t.label)} →</a></article>`).join('')}</div></section>`:'';
  return nav()+`<main class="wrap seo-guide"><div class="dev-hero"><div class="eyebrow">${esc(p.kicker)}</div><h1>${esc(p.h1)}</h1><p>${esc(p.lead)}</p><div class="row"><a class="btn" href="/signup">Start my free 14-day trial →</a><a class="btn outline" href="/consultation">Ask about setup</a></div></div>${gallery}<div class="seo-guide-body"><article>${p.sections.map(([title,body])=>`<section><h2>${esc(title)}</h2><p>${esc(body)}</p></section>`).join('')}</article><aside class="feature"><h2>Plan your shop</h2><ul>${Object.entries(marketingPages).filter(([url])=>url!==path).map(([url,data])=>`<li><a href="${url}">${esc(data.kicker)} →</a></li>`).join('')}<li><a href="/consultation">Request a consultation →</a></li></ul></aside></div></main>`+footer();
 }

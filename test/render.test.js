@@ -71,16 +71,12 @@ test('the Plaza owner can open the PayPal settings and sees an empty masked secr
  assert.match(modal.innerHTML,/Current ICSS Plaza password/);
  assert.doesNotMatch(modal.innerHTML,/name="secret"[^>]*value=/);
 });
-test('signup groups shop and professional starters and a blank canvas, with explicit guidance and a full wholesale preview',async()=>{
+test('signup offers six starters and a blank canvas, with explicit guidance and a full wholesale preview',async()=>{
  const {app}=await boot('/signup');
- assert.equal((app.innerHTML.match(/name="template"/g)||[]).length,13);
+ assert.equal((app.innerHTML.match(/name="template"/g)||[]).length,7);
  assert.match(app.innerHTML,/value="blank"/);
- assert.match(app.innerHTML,/Professional websites/);
- const chosen=(await boot('/signup','?template=driving-lessons')).app.innerHTML;
- assert.match(chosen,/value="driving-lessons" checked/);
- assert.match(chosen,/Ask about lessons/);
  assert.match(app.innerHTML,/What can I change later/);
- assert.match(app.innerHTML,/Continue to site details/);
+ assert.match(app.innerHTML,/Continue to store details/);
  assert.match(app.innerHTML,/data-signup-pane="details" hidden/);
  const example=await boot('/templates/wholesale');assert.match(example.app.innerHTML,/Your weekly shop, sorted\./);assert.match(example.app.innerHTML,/Jamaican pantry staples/);assert.match(example.app.innerHTML,/Shop by department/);
 });
@@ -100,10 +96,10 @@ test('vendor inventory and customers are real workspaces, with orders and custom
  assert.doesNotMatch(support,/data-tab="(?:customers|orders|billing|payments)"/);
 });
 
-test('developer can open shop and professional previews and vendor growth modules',async()=>{
+test('developer can open all six template previews and vendor growth modules',async()=>{
  const {app}=await boot('/developer','?tab=templates',{'/api/session':{user:{id:'operator'},operator:true}});
- assert.match(app.innerHTML,/Website and storefront template library/);
- assert.equal((app.innerHTML.match(/Open (?:storefront|website) preview/g)||[]).length,12);
+ assert.match(app.innerHTML,/Storefront template library/);
+ assert.equal((app.innerHTML.match(/Open storefront preview/g)||[]).length,6);
  for(const [tab,label] of [['discounts','Create discount'],['loyalty','Edit loyalty rules'],['quiz','Edit quiz rules'],['journal','Write article'],['emails','Edit or preview'],['reviews','No reviews yet']]){
   const view=await boot('/demo','?tab='+tab);
   assert.ok(view.app.innerHTML.includes(label),tab);
@@ -127,24 +123,4 @@ test('wholesale navigation opens separate catalogue, department, product, story 
  const policy=(await boot('/templates/wholesale/policies/shipping')).app.innerHTML;assert.match(policy,/<h1>Delivery &amp; pickup<\/h1>/);
  const live=(await boot('/s/example-store/shop','?category=Pantry',{'/api/stores/example-store':{slug:'example-store',settings:{name:'Example store',currency:'JMD',categories:['Pantry'],sections:[{id:'catalog',type:'catalog'}]},products:[]}})).app.innerHTML;
  assert.match(live,/<h1>Pantry<\/h1>/);assert.match(live,/No products found/);
-});
-
-test('professional previews have full pages and invite enquiries rather than purchases',async()=>{
- for(const id of ['driving-lessons','pastor-ministry','catering','photography','tutoring','home-services']){
-  const root='/templates/'+id,home=(await boot(root)).app.innerHTML;
-  assert.ok(home.includes('href="'+root+'/contact"'),id);
-  assert.ok(home.includes('href="'+root+'/page/0"'),id);
-  assert.ok(home.includes('href="'+root+'/page/1"'),id);
-  assert.ok(home.includes('href="/signup?template='+id+'"'),id);
-  assert.doesNotMatch(home,/retail-bag|retail-search|Browse the shop/);
- }
- const lesson=(await boot('/templates/driving-lessons/page/1')).app.innerHTML;
- assert.match(lesson,/<h1>Areas &amp; availability<\/h1>/);
- const ministry=(await boot('/templates/pastor-ministry/page/1')).app.innerHTML;
- assert.match(ministry,/<h1>Sermons &amp; messages<\/h1>/);
- const contact=(await boot('/templates/pastor-ministry/contact')).app.innerHTML;
- assert.match(contact,/Can I invite the pastor to speak/);
- assert.match(contact,/Example contact page/);
- const bag=(await boot('/templates/driving-lessons/bag')).app.innerHTML;
- assert.match(bag,/Page not found/);
 });

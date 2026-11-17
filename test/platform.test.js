@@ -269,7 +269,7 @@ test('vendor growth tools apply at checkout and keep drafts, private data, and u
 });
 
 test('public pages are searchable in the initial HTML with unique metadata and stable URLs',async()=>{
- const pages=[['/','Your business'],['/sell-online-jamaica','How to sell products online in Jamaica'],['/online-store-templates','Choose a website or online shop template'],['/ecommerce-payments-jamaica','How to take payments'],['/online-store-pricing','What does it cost'],['/consultation','Let’s talk about your online store']];
+ const pages=[['/','Your business'],['/sell-online-jamaica','How to sell products online in Jamaica'],['/online-store-templates','Choose an ecommerce template'],['/ecommerce-payments-jamaica','How to take payments'],['/online-store-pricing','What does it cost'],['/consultation','Let’s talk about your online store']];
  const titles=new Set();
  for(const [path,heading] of pages){
   const response=await fetch(base+path+'?utm_source=verification');
@@ -290,49 +290,9 @@ test('public pages are searchable in the initial HTML with unique metadata and s
  assert.match(gallery,/href="\/templates\/wholesale"/);
  assert.match(gallery,/href="\/templates\/fashion"/);
  assert.match(gallery,/href="\/templates\/yard"/);
- assert.match(gallery,/href="\/templates\/driving-lessons"/);
- assert.match(gallery,/href="\/templates\/pastor-ministry"/);
  const redirect=await fetch(base+'/sell-online-jamaica/?source=keep',{redirect:'manual'});
  assert.equal(redirect.status,308);
  assert.equal(redirect.headers.get('location'),'/sell-online-jamaica?source=keep');
-});
-
-test('professional sites publish with public contact details, and never expose checkout',async()=>{
- const owner=await signup('ministry-website','pastor-ministry');
- const {settings,slug,id}=owner.tenant,admin='/api/admin/'+id,live='/s/'+slug,api='/api/stores/'+slug;
- assert.equal(settings.siteMode,'enquiries');
- assert.equal(settings.contactEmail,'');
- assert.equal(settings.customPages[0].title,'Plan a visit');
- assert.equal((await req(admin+'/settings','PUT',{published:true,vendorAcknowledgement:true},owner)).status,400);
- const edited=await req(admin+'/design','PUT',{mode:'save',design:{heroTitle:'Welcome to our ministry'}},owner);
- assert.equal(edited.status,200,JSON.stringify(edited.data));
- const result=await req(admin+'/settings','PUT',{contactEmail:'public-ministry@example.com',published:true,vendorAcknowledgement:true},owner);
- assert.equal(result.status,200,JSON.stringify(result.data));
- assert.equal(result.data.settings.address,'');
- assert.equal(result.data.settings.defaultPayment,'');
- const home=await fetch(base+live);
- assert.equal(home.status,200);
- const html=await home.text();
- assert.match(html,/Welcome to our ministry/);
- assert.ok(html.includes('href="'+live+'/contact"'));
- assert.doesNotMatch(html,/retail-bag|retail-search|Browse the shop/);
- assert.match(await (await fetch(base+live+'/contact')).text(),/mailto:public-ministry@example.com/);
- assert.match(await (await fetch(base+live+'/page/0')).text(),/WHAT TO EXPECT/);
- assert.equal((await fetch(base+live+'/shop')).status,404);
- assert.equal((await fetch(base+live+'/bag')).status,404);
- assert.equal((await req(api+'/quote','POST',{lines:[]})).status,404);
- assert.equal((await req(api+'/orders','POST',{})).status,409);
- assert.deepEqual((await req(api)).data.gateways,[]);
- const reject=await req(admin+'/design','PUT',{mode:'apply',design:{siteMode:'shop'}},owner);
- assert.equal(reject.status,400,JSON.stringify(reject.data));
- const sitemap=await (await fetch(base+'/sitemap.xml')).text();
- assert.ok(sitemap.includes(live+'/page/0'));
- assert.ok(!sitemap.includes(live+'/shop'));
- const preview=await fetch(base+'/templates/driving-lessons/page/0');
- assert.equal(preview.status,200);
- assert.equal(preview.headers.get('X-Robots-Tag'),'noindex, follow');
- assert.match(await preview.text(),/<h1>Lesson options<\/h1>/);
- assert.equal((await fetch(base+'/templates/driving-lessons/shop')).status,404);
 });
 
 test('crawl files expose published stores and products, with private or missing routes excluded',async()=>{

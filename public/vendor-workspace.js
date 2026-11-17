@@ -1,5 +1,4 @@
-import {esc} from './storefront.js?v=plaza-careers-1';
-import {sellsOnline} from './store-templates.js?v=plaza-careers-1';
+import {esc} from './storefront.js?v=growth-1';
 
 const paths={
  overview:'<path d="M3 3v18h18M7 15l4-4 4 2 5-6"/>',
@@ -35,22 +34,16 @@ const sections=[
  ['Management',[['emails','Email Templates'],['payments','Payment Methods'],['billing','Rental Billing'],['vendor-cases','Vendor Reports'],['settings','Store Settings']]]
 ];
 const supportTabs=['overview','products','inventory','appearance','content','media','policies'];
-export const enquiryWorkspace=state=>!!state?.settings&&!sellsOnline(state.settings)&&!(state.orders?.length||state.products?.length);
-const siteLabels={appearance:'Site Designer',content:'Site Content',policies:'Privacy Notice',settings:'Site Settings',journal:'Journal & Content'};
-const enquiryHidden=new Set(['orders','products','inventory','customers','discounts','loyalty','quiz','reviews','emails','payments']);
-export const workspaceSections=({support=false,demo=false,testWorkspace=false,enquiries=false}={})=>sections.map(([group,rows])=>[enquiries&&group==='Storefront'?'Website':group,rows
- .filter(([key])=>!enquiries||!enquiryHidden.has(key))
- .filter(([key])=>support?(supportTabs.includes(key)||testWorkspace&&['discounts','loyalty','quiz','reviews','journal','emails'].includes(key)):!demo||!['billing','vendor-cases'].includes(key))
- .map(([key,label])=>[key,enquiries?siteLabels[key]||label:label])]).filter(([,items])=>items.length);
+export const workspaceSections=({support=false,demo=false,testWorkspace=false}={})=>sections.map(([group,rows])=>[group,rows.filter(([key])=>support?(supportTabs.includes(key)||testWorkspace&&['discounts','loyalty','quiz','reviews','journal','emails'].includes(key)):!demo||!['billing','vendor-cases'].includes(key))]).filter(([,items])=>items.length);
 export const workspaceTab=(key,options)=>workspaceSections(options).flatMap(([,items])=>items).some(([id])=>id===key)?key:'overview';
 export const workspaceTitle=(key,options)=>workspaceSections(options).flatMap(([,items])=>items).find(([id])=>id===key)?.[1]||'Dashboard';
 export function workspaceSidebar({tab,state,support,demo,operator}){
- const enquiries=enquiryWorkspace(state),sections=workspaceSections({support,demo,testWorkspace:state.slug==='plaza-test-workspace',enquiries});
+ const sections=workspaceSections({support,demo,testWorkspace:state.slug==='plaza-test-workspace'});
  return `<aside class="vendor-sidebar" aria-label="Vendor workspace sidebar">
- <div class="vendor-sidebar-top"><a class="vendor-brand" href="/" aria-label="ICSS Plaza home"><img src="/assets/brand/logo-horizontal.png" width="900" height="220" alt="ICSS Plaza"><span>${enquiries?'WEBSITE WORKSPACE':'VENDOR WORKSPACE'}</span></a><button class="vendor-menu-toggle" type="button" data-action="vendor-menu" aria-expanded="false" aria-controls="vendor-menu-body">${workspaceIcon('menu')}<span>Menu</span></button></div>
- <div class="vendor-menu-body" id="vendor-menu-body"><div class="vendor-store-card"><span class="vendor-store-icon">${workspaceIcon('home')}</span><div><strong>${esc(state.settings.name)}</strong><small>${demo?'Sample store':support?'Support access':state.settings.published?(enquiries?'Published website':'Published storefront'):(enquiries?'Draft website':'Draft storefront')}</small></div></div>
+ <div class="vendor-sidebar-top"><a class="vendor-brand" href="/" aria-label="ICSS Plaza home"><img src="/assets/brand/logo-horizontal.png" width="900" height="220" alt="ICSS Plaza"><span>VENDOR WORKSPACE</span></a><button class="vendor-menu-toggle" type="button" data-action="vendor-menu" aria-expanded="false" aria-controls="vendor-menu-body">${workspaceIcon('menu')}<span>Menu</span></button></div>
+ <div class="vendor-menu-body" id="vendor-menu-body"><div class="vendor-store-card"><span class="vendor-store-icon">${workspaceIcon('home')}</span><div><strong>${esc(state.settings.name)}</strong><small>${demo?'Sample store':support?'Support access':state.settings.published?'Published storefront':'Draft storefront'}</small></div></div>
  <nav class="vendor-nav" aria-label="Store management">${sections.map(([name,items])=>`<div class="vendor-nav-group"><span>${name}</span>${items.map(([id,label])=>`<button type="button" class="vendor-nav-link${id===tab?' active':''}" data-tab="${id}" ${id===tab?'aria-current="page"':''}>${workspaceIcon(id)}<span>${label}</span></button>`).join('')}</div>`).join('')}</nav>
- <div class="vendor-sidebar-bottom">${!support&&!demo&&state.settings.published?`<a class="vendor-nav-link" href="/s/${esc(state.slug)}" target="_blank" rel="noopener">${workspaceIcon('preview')}<span>${enquiries?'View live website':'View live storefront'} ↗</span></a>`:`<button type="button" class="vendor-nav-link" data-action="preview">${workspaceIcon('preview')}<span>${enquiries?'Full website preview':'Full storefront preview'}</span></button>`}
+ <div class="vendor-sidebar-bottom">${!support&&!demo&&state.settings.published?`<a class="vendor-nav-link" href="/s/${esc(state.slug)}" target="_blank" rel="noopener">${workspaceIcon('preview')}<span>View live storefront ↗</span></a>`:`<button type="button" class="vendor-nav-link" data-action="preview">${workspaceIcon('preview')}<span>Full storefront preview</span></button>`}
  ${support?`<button type="button" class="vendor-nav-link" data-action="vendor-support-end">${workspaceIcon('exit')}<span>End support session</span></button>`:`${operator?'<a class="vendor-nav-link" href="/developer">Developer Console ↗</a>':''}${demo?'':`<button type="button" class="vendor-nav-link" data-action="logout">${workspaceIcon('exit')}<span>Sign out</span></button>`}`}</div></div></aside>`;
 }
 export const stockOf=p=>(p.variants||[]).length?p.variants.reduce((n,v)=>n+v.stock,0):p.stock;
@@ -88,8 +81,6 @@ export function customersPanel(orders,money){
 }
 export function vendorDashboard({state,money,support,demo,previewButton,setup}){
  const launchFirst=!support&&!demo&&!state.settings.published;
- if(enquiryWorkspace(state))return `${launchFirst?`<div class="launchpad-first">${setup}</div>`:''}<div class="vendor-hero"><div><div class="eyebrow">ICSS Plaza · Website workspace</div><h2>Your website at a glance</h2><p>Update the pages people see, add photos and make it easy for visitors to get in touch.</p></div><div class="vendor-hero-actions">${previewButton}</div></div>
- <div class="vendor-dashboard-grid ${launchFirst?'launchpad-quick-only':''}">${launchFirst?'':setup}<section class="panel vendor-panel"><h2>Website tools</h2><div class="vendor-quick-links">${[['appearance','Edit the website design'],['content','Update pages and contact details'],['media','Manage photos and video'],['policies','Review the privacy notice']].map(([id,label])=>`<button type="button" data-tab="${id}">${workspaceIcon(id)}<span>${label}</span><span aria-hidden="true">→</span></button>`).join('')}</div></section></div>`;
  const active=state.products.filter(p=>p.active).length,stock=state.products.filter(p=>p.active&&stockOf(p)===0).length;
  const counts=support?stat('products','Catalogue products',state.products.length)+stat('inventory','Visible products',active)+stat('orders','Visible products sold out',stock)
  :stat('overview','Confirmed revenue',esc(money(state.metrics?.confirmedRevenue??state.orders.filter(o=>o.paid).reduce((n,o)=>n+o.total,0))))+stat('orders','Orders to review',state.orders.filter(o=>['new','processing'].includes(o.state)).length)+stat('products','Active products',active);

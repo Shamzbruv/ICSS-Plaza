@@ -1,10 +1,10 @@
-import {templates,getTemplate,sectionTypes,exampleStore,sellsOnline} from './store-templates.js?v=plaza-careers-1';
-import {designGroups,designKeys} from './store-design-fields.js?v=plaza-careers-1';
-import {esc,templateToolbar,getSections,sectionPage} from './storefront.js?v=plaza-careers-1';
+import {templates,getTemplate,sectionTypes,exampleStore} from './store-templates.js?v=plaza-launch-1';
+import {designGroups,designKeys} from './store-design-fields.js?v=studio-1';
+import {esc,getSections,sectionPage} from './storefront.js?v=retail-1';
 
 const studioPages=[['home','Home'],['shop','Shop'],['about','Our story'],['contact','Contact'],['journal','Journal'],['reviews','Reviews'],['policies','Delivery policy']];
 const coreTypes=['hero','catalog','about'];
-const canvasURL='/store-canvas.html?v=plaza-careers-1';
+const canvasURL='/store-canvas.html?v=retail-1';
 const assetNames=['collection','serum','tote','mug','candle',...templates.map(t=>'template-'+t.id)];
 const attr=x=>esc(x);
 const own=Object.hasOwn;
@@ -15,7 +15,7 @@ const btn=(label,cmd,value='',css='outline sm')=>`<button type="button" class="b
 export function templatePage(id){
  const t=getTemplate(id);
  if(!t)return null;
- return {store:exampleStore(t),toolbar:templateToolbar(t)};
+ return {store:exampleStore(t),toolbar:`<div class="example-toolbar"><a href="/signup">← All templates</a><strong>${esc(t.label)} · Template preview</strong><a class="btn sm" href="/signup?template=${t.id}">Use this design →</a></div>`};
 }
 export function studioMediaOptions(images,kind,selected,label,name){
  const options=kind==='video'?[]:assetNames.map(k=>['/assets/'+k+'.svg',k.startsWith('template-')?'Artwork · '+getTemplate(k.slice(9))?.label:'Sample '+k]);
@@ -38,7 +38,7 @@ const extraFields=(section,images)=>{
  if(['image','video'].includes(section.type))fields.push(['image',section.type==='video'?'Video cover':'Photo','image'],['alt','Photo description for screen readers']);
  if(section.type==='video')fields.push(['video','Video','video']);
  if(section.type==='gallery')fields.push(['alt','Photo descriptions']);
- fields.push(['button','Button label'],['link','Button link (HTTPS, #contact or #page-0)'],['align','Text alignment','options',[['left','Left'],['center','Centre'],['right','Right']]],['tone','Background','options',[['plain','Page'],['soft','Soft'],['accent','Accent']]]);
+ fields.push(['button','Button label'],['link','Button link (HTTPS or #collection)'],['align','Text alignment','options',[['left','Left'],['center','Centre'],['right','Right']]],['tone','Background','options',[['plain','Page'],['soft','Soft'],['accent','Accent']]]);
  let content=fields.map(f=>field(f,section[f[0]]??(f[0]==='page'?'home':f[0]==='align'?'left':f[0]==='tone'?'plain':''),images)).join('');
  if(section.type==='gallery')content+=`<details open><summary>Gallery photos</summary>${Array.from({length:8},(_,i)=>field(['photo-'+i,'Photo '+(i+1),'image'],section.images?.[i]||'',images)).join('')}</details>`;
  if(['benefits','faq'].includes(section.type))content+=pairs(section.items||[],'entries',section.type==='faq'?'Question':'Benefit',section.type==='faq'?'Answer':'Description',8);
@@ -49,7 +49,7 @@ function pairs(list,name,title,text,limit){
 }
 function startDraft(settings){
  const merged={...settings,...settings.designDraft};
- const value={grid:'standard',headerStyle:'split',bagLabel:'Bag',siteMode:'shop',heroDestination:'shop',...Object.fromEntries(designKeys.filter(k=>own(merged,k)).map(k=>[k,copy(merged[k])]))};
+ const value={grid:'standard',headerStyle:'split',bagLabel:'Bag',...Object.fromEntries(designKeys.filter(k=>own(merged,k)).map(k=>[k,copy(merged[k])]))};
  value.sections=copy(getSections(merged));
  return value;
 }
@@ -88,7 +88,7 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
   let controls='';
   if(g)controls=g.fields.map(f=>f[2]==='pages'?pairs(pages,'pages','Page','Page content',10):field(f,value[f[0]],current().images)).join('');
   if(s&&!g)controls=extraFields(s,current().images);
-  if(g===designGroups.catalog)controls+=sellsOnline(value)?btn('Manage products','pick','all-products'):'<p>Turn on online selling under Colours & layout to show a collection.</p>';
+  if(g===designGroups.catalog)controls+=btn('Manage products','pick','all-products');
   if(s?.type==='categories')controls+=btn('Edit category list','pick','catalog');
   const index=s?value.sections.indexOf(s):-1;
   const manage=s?`<div class="studio-section-actions"><button type="button" class="btn outline sm" data-studio="move" data-value="-1" ${index<1?'disabled':''}>↑ Up</button><button type="button" class="btn outline sm" data-studio="move" data-value="1" ${index===value.sections.length-1?'disabled':''}>↓ Down</button>${btn(s.hidden?'Show':'Hide','hide')}${coreTypes.includes(s.type)?'':btn('Remove','remove')}</div>`:'';
@@ -99,14 +99,13 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
    <p>Click a section in the preview or pick a shortcut below. Your design edits stay private until you publish.</p>
    <div class="studio-coach-steps">${hero?btn('Edit headline','pick',hero.id):''}${btn('Change colours','pick','theme')}${btn('Add a section','add-menu')}</div></details>`;
   panel.innerHTML=`<div class="studio-inspector-inner"><div class="studio-label">Store design</div><p class="studio-template-name">${esc(t?.label||'Classic storefront')} <span>Starting point</span></p>${guide}
-   <div class="studio-global">${row('brand','Brand & navigation','◈')}${row('theme','Colours & layout','◉')}${sellsOnline(value)?row('all-products','Products','▧'):''}</div>
+   <div class="studio-global">${row('brand','Brand & navigation','◈')}${row('theme','Colours & layout','◉')}${row('all-products','Products','▧')}</div>
    <details class="studio-layers" open><summary>Page sections</summary>${value.sections.map(x=>row(x.id,sectionTitle(x)+' · '+(studioPages.find(p=>p[0]===sectionPage(x))?.[1]||'Home')+(x.hidden?' (hidden)':''),'▤')).join('')}${['hero','catalog','about'].filter(k=>!value.sections.some(x=>x.type===k)).map(k=>btn('+ Restore '+sectionTypes[k],'add-section',k)).join('')}${row('footer','Footer & policies','≡')}<label class="field studio-add-label">Add a section<select data-studio-add><option value="">Choose a section</option>${Object.entries(sectionTypes).filter(([k])=>!coreTypes.includes(k)).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join('')}</select></label></details>
    <section class="studio-fields"><h2 tabindex="-1">${esc(g?.label||sectionTitle(s||{})||'Products')}</h2>${manage}<div id="studio-inputs">${controls}${list}</div></section></div>`;
   panel.scrollTop=oldScroll;
   if(focus)panel.querySelector('.studio-fields h2')?.focus();
  }
  function drawStatus(){
-  updatePageControl();
   const box=app.querySelector('#studio-status');
   if(box)box.textContent=statusText||(dirty()?'Unsaved changes':current().settings.designDraft?'Draft saved':current().settings.published?'Published storefront':'Unpublished storefront');
   const discard=app.querySelector('[data-studio="discard"]');
@@ -135,9 +134,7 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
     sect.images||=[];sect.images[Number(key.slice(6))]=raw;
    }else if(designKeys.includes(key))value[key]=key==='categories'?raw.split('\n').map(x=>x.trim()).filter(Boolean):raw;
    else if(sect&&!coreTypes.includes(sect.type))sect[key]=raw;
-  },{coalesce:['text','textarea'].includes(control.type),redraw:['page','siteMode'].includes(key)});
-  if(key==='siteMode'&&!previewPages().some(([k])=>k===routeValue())){route={page:'home'};send('page',route);}
-  if(key==='siteMode'||key==='navContactLabel'||key==='navAboutLabel'||key.startsWith('pages-title-'))updatePageControl();
+  },{coalesce:['text','textarea'].includes(control.type),redraw:key==='page'});
   if(key==='page'&&sect){route={page:raw};send('page',route);send('jump',selected);updatePageControl();}
  }
  function addSection(type){
@@ -179,17 +176,8 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
   }catch(error){statusText=error.message;toast(error.message);throw error;}
   finally{savePending=false;drawStatus();}
  }
- const previewPages=()=>[
-  ...studioPages.filter(([k])=>sellsOnline(value)||!['shop','reviews','policies'].includes(k)).map(([key,label])=>[key,key==='contact'&&value.navContactLabel?value.navContactLabel:key==='about'&&value.navAboutLabel?value.navAboutLabel:label]),
-  ...(!sellsOnline(value)?[['policies','Privacy notice']]:[]),
-  ...(value.customPages||[]).map((p,i)=>['page/'+i,p.title||'Untitled page '+(i+1)])
- ];
- const routeValue=()=>route.page==='page'?'page/'+route.id:route.page;
  function updatePageControl(){
-  const control=app.querySelector('[data-studio-page]');if(!control)return;
-  const pages=previewPages();
-  control.innerHTML=pages.map(([k,name])=>`<option value="${attr(k)}">${esc(name)}</option>`).join('');
-  if(pages.some(([k])=>k===routeValue()))control.value=routeValue();
+  const control=app.querySelector('[data-studio-page]');if(control&&studioPages.some(([k])=>k===route.page))control.value=route.page;
  }
  function draw(){
   load();
@@ -197,9 +185,9 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
   app.innerHTML=`<main id="store-studio" class="store-studio${preview?' studio-preview-only':''}" data-viewport="${viewport}">
    <header class="studio-toolbar"><div class="studio-toolbar-home">${logo()}<span><strong>${esc(s.name)}</strong><small>${preview?'Storefront preview':'Store designer'}</small></span></div>
     <div class="studio-view-tools" role="group" aria-label="Preview size">${['Desktop','Tablet','Phone'].map(n=>btn(n,'viewport',n.toLowerCase(),viewport===n.toLowerCase()?'sm':'outline sm').replace('data-studio=',`aria-pressed="${viewport===n.toLowerCase()}" data-studio=`)).join('')}</div>
-    <div class="studio-toolbar-actions">${btn('Dashboard','exit')}${btn(preview?'Back to editing':'Full preview','preview')}${preview?'':btn('Undo','undo')+btn('Redo','redo')+btn('Save draft','save','','sm')+(canApply?btn(isDemo()?'Apply demo changes':'Publish changes','apply','','sm'):!support&&!isDemo()?btn(sellsOnline(value)?'Publish store':'Publish website','publish','','sm'):'')}</div>
+    <div class="studio-toolbar-actions">${btn('Dashboard','exit')}${btn(preview?'Back to editing':'Full preview','preview')}${preview?'':btn('Undo','undo')+btn('Redo','redo')+btn('Save draft','save','','sm')+(canApply?btn(isDemo()?'Apply demo changes':'Publish changes','apply','','sm'):!support&&!isDemo()?btn('Publish store','publish','','sm'):'')}</div>
    </header>
-   <div class="studio-notice"><span>${preview?'Customer view · Checkout disabled in preview.':'Select a section on the storefront to edit it. Save a draft to keep changes private.'}${support?' · Vendor support mode':''}</span>${field(['storefrontPage','Preview page','options',previewPages()],routeValue()).replace('<select name=','<select data-studio-page name=')}<span id="studio-status" role="status"></span>${!support&&!preview?btn('Discard draft','discard'):''}${support?'<button type="button" class="btn outline sm" data-action="vendor-support-end">End support session</button>':''}</div>
+   <div class="studio-notice"><span>${preview?'Customer view · Checkout disabled in preview.':'Select a section on the storefront to edit it. Save a draft to keep changes private.'}${support?' · Vendor support mode':''}</span>${field(['storefrontPage','Preview page','options',studioPages],route.page).replace('<select name=','<select data-studio-page name=')}<span id="studio-status" role="status"></span>${!support&&!preview?btn('Discard draft','discard'):''}${support?'<button type="button" class="btn outline sm" data-action="vendor-support-end">End support session</button>':''}</div>
    <div class="studio-workbench"><aside id="studio-inspector" aria-label="Store design controls"></aside><div class="studio-stage"><iframe id="studio-canvas" title="Live storefront preview" src="${canvasURL}"></iframe></div></div>
    </main>`;
   drawInspector();drawStatus();
@@ -218,7 +206,7 @@ export function createStoreStudio({app,getState,getSupport,isDemo,logo,api,toast
  app.addEventListener('change',async e=>{
   if(!inStudio())return;
   const target=e.target;
-  if(target.matches('[data-studio-page]')){const [page,id]=target.value.split('/');route={page,...(page==='policies'?{id:sellsOnline(value)?'shipping':'privacy'}:id?{id}:{})};send('page',route);return;}
+  if(target.matches('[data-studio-page]')){route={page:target.value,...(target.value==='policies'?{id:'shipping'}:{})};send('page',route);return;}
   if(target.matches('[data-studio-add]')&&target.value){addSection(target.value);return;}
   if(target.matches('select'))fieldChanged(target);
   if(target.matches('[data-studio-upload]')&&target.files[0]){
