@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en-JM">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="A storefront concept for Angel Beads by A Kreations, handmade gemstone jewellery from Jamaica.">
+<title>Angel Beads by A · ICSS Plaza Storefront Preview</title>
+<link rel="stylesheet" href="./store.css">
+<script defer src="./store.js"></script>
+</head>
+<body>
+<div class="preview">STOREFRONT PREVIEW <span>·</span> POWERED BY ICSS PLAZA</div>
+<header>
+<a class="brand" href="#top">Angel Beads <i>by A</i></a>
+<nav aria-label="Store navigation"><a href="#collection">Shop</a><a href="#custom">Custom orders</a><a href="#studio">For the owner</a></nav>
+<button id="open-bag" type="button">Bag <span id="bag-count">0</span></button>
+</header>
+<main id="top">
+<section class="hero">
+<div class="hero-copy"><p class="eyebrow">HANDMADE IN JAMAICA</p><h1>Made by hand.<br><em>Worn your way.</em></h1><p>Gemstone bracelets, waist beads and matching sets, strung by hand. Islandwide delivery.</p><a class="primary" href="#collection">Explore the collection <span aria-hidden="true">↗</span></a></div>
+<img src="./hero.webp" alt="Pink, amber and turquoise gemstone bracelets on sculptural ivory displays">
+</section>
+<section class="collection" id="collection">
+<div class="section-heading"><div><p class="eyebrow">THE COLLECTION</p><h2>Find your colours</h2></div><p>Concept pieces · sample prices in Jamaican dollars.</p></div>
+<div class="filters" aria-label="Filter the collection">
+<button type="button" data-filter="All" aria-pressed="true">All pieces</button><button type="button" data-filter="Bracelets" aria-pressed="false">Bracelets</button><button type="button" data-filter="Waist beads" aria-pressed="false">Waist beads</button><button type="button" data-filter="Sets" aria-pressed="false">Matching sets</button>
+</div>
+<div class="products" id="products"></div>
+<noscript>Enable JavaScript to browse pieces and try the sample bag.</noscript>
+</section>
+<section class="custom" id="custom">
+<img src="./waist.webp" alt="Coiled strands of turquoise and amber waist beads" loading="lazy">
+<div><p class="eyebrow">CUSTOM ORDERS</p><h2>Make it yours.</h2><p>Try a sample request for a bracelet, waist beads or a matching set. Pick a palette and add your measurements to see what the maker would receive.</p>
+<form id="custom-form">
+<div class="custom-fields">
+<label>Piece <select name="piece"><option>Bracelet</option><option>Waist beads</option><option>Matching set</option></select></label>
+<label>Palette <select name="palette"><option>Rose &amp; gold</option><option>Amber &amp; midnight</option><option>Turquoise &amp; violet</option><option>My own mix</option></select></label>
+</div>
+<label>Size or colour notes <input name="notes" type="text" maxlength="120" placeholder="Try a sample size or colour combination"></label>
+<button type="submit" class="primary">Preview custom request</button>
+<p class="fine">This sample stays on the page.</p>
+<p id="custom-result" role="status" hidden></p>
+</form></div></section>
+<section class="studio" id="studio">
+<p class="eyebrow">FOR THE OWNER · ICSS PLAZA</p><h2>Give customers a shop link from Instagram.</h2>
+<div class="benefits">
+<article><h3>Give every piece its own page</h3><p>Upload your photos, set your prices and organise bracelets, waist beads and sets into collections. Share the exact piece from Instagram or WhatsApp.</p></article>
+<article><h3>See what’s available</h3><p>Manage stock and offer variations for size or colour. When a customer orders a particular piece, you can see what to set aside.</p></article>
+<article><h3>Manage orders in one place</h3><p>Keep the selected size, colour and order details together. Set delivery and payment options for your Jamaican customers.</p></article>
+</div>
+<a href="/demo">Try the ICSS Plaza dashboard ↗</a>
+</section>
+</main>
+<footer><span class="brand">Angel Beads <i>by A</i></span><a href="https://www.instagram.com/angelbeadsby_a/">See Angel Beads on Instagram ↗</a><p>Illustrative product images, names and prices. This concept uses AI-generated photography and a simulated checkout.</p></footer>
+<dialog id="detail" aria-labelledby="detail-title"><form method="dialog"><button class="close" aria-label="Close product details">×</button></form><div id="detail-body"></div></dialog>
+<dialog id="bag" aria-labelledby="bag-title"><form method="dialog"><button class="close" aria-label="Close bag">×</button></form><h2 id="bag-title">Your bag</h2><div id="bag-lines"></div><p id="total"></p><div id="checkout-area" hidden><label for="fulfilment">Fulfilment</label><select id="fulfilment"><option>Pickup</option><option>Delivery</option></select><button type="button" class="primary" id="checkout">Try sample checkout</button></div><p role="status" id="status"></p><p class="fine">Preview only. No payment or personal details required.</p></dialog>
+</body></html>
