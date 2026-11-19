@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en-JM">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="A private-look storefront concept for Beauty & the Beads, built for ICSS Plaza.">
+<title>Beauty &amp; the Beads · ICSS Plaza Storefront Preview</title>
+<link rel="stylesheet" href="./store.css">
+<script defer src="./store.js"></script>
+</head>
+<body>
+<div class="preview">STOREFRONT PREVIEW <span>·</span> POWERED BY ICSS PLAZA</div>
+<header>
+<a class="brand" href="#top">Beauty <i>&amp;</i> the Beads</a>
+<nav aria-label="Store navigation"><a href="#collection">Shop</a><a href="#studio">For the owner</a></nav>
+<button id="open-bag" type="button">Bag <span id="bag-count">0</span></button>
+</header>
+<main id="top">
+<section class="hero">
+<div class="hero-copy"><p class="eyebrow">JEWELLERY &amp; ACCESSORIES</p><h1>Colour worth<br><em>wearing.</em></h1><p>Prism-bright bead stacks, sculptural rings and pieces that make a simple outfit your own.</p><a class="primary" href="#collection">Explore the collection <span aria-hidden="true">↗</span></a></div>
+<img src="./hero.webp" alt="A stack of pink, plum and iridescent bracelets catching the light">
+</section>
+<section class="collection" id="collection">
+<div class="section-heading"><div><p class="eyebrow">THE COLLECTION</p><h2>Pick your statement</h2></div><p>Preview pieces and sample prices in Jamaican dollars.</p></div>
+<div class="filters" aria-label="Filter the collection">
+<button type="button" data-filter="All" aria-pressed="true">All pieces</button><button type="button" data-filter="Bracelets" aria-pressed="false">Bracelets</button><button type="button" data-filter="Rings" aria-pressed="false">Rings</button><button type="button" data-filter="Necklaces" aria-pressed="false">Necklaces</button><button type="button" data-filter="Earrings" aria-pressed="false">Earrings</button><button type="button" data-filter="Accessories" aria-pressed="false">Accessories</button>
+</div>
+<div class="products" id="products"></div>
+<noscript>Enable JavaScript to browse pieces and try the sample bag.</noscript>
+</section>
+<section class="studio" id="studio">
+<p class="eyebrow">FOR THE OWNER · ICSS PLAZA</p><h2>Your own shop, from first look to fulfilment.</h2>
+<div class="benefits">
+<article><h3>Give every piece its own page</h3><p>Upload your photos, set your prices and organise bracelets, rings and accessories into collections. Share the exact piece from Instagram or WhatsApp.</p></article>
+<article><h3>See what’s available</h3><p>Manage stock and offer variations for size or finish. When a customer orders a particular piece, you can see what to set aside.</p></article>
+<article><h3>Manage orders in one place</h3><p>See what was ordered and choose the pickup, delivery and payment options that fit your business.</p></article>
+</div>
+<a href="/demo">Explore the ICSS Plaza demo ↗</a>
+</section>
+</main>
+<footer><span class="brand">Beauty <i>&amp;</i> the Beads</span><p>Illustrative product images, names and prices. This concept uses AI-generated photography and a simulated checkout.</p></footer>
+<dialog id="detail" aria-labelledby="detail-title"><form method="dialog"><button class="close" aria-label="Close product details">×</button></form><div id="detail-body"></div></dialog>
+<dialog id="bag" aria-labelledby="bag-title"><form method="dialog"><button class="close" aria-label="Close bag">×</button></form><h2 id="bag-title">Your bag</h2><div id="bag-lines"></div><p id="total"></p><div id="checkout-area" hidden><label for="fulfilment">Fulfilment</label><select id="fulfilment"><option>Pickup</option><option>Delivery</option></select><button type="button" class="primary" id="checkout">Try sample checkout</button></div><p role="status" id="status"></p><p class="fine">Preview only. No payment or personal details required.</p></dialog>
+</body></html>
